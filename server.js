@@ -8,8 +8,31 @@ const orderRoutes = require('./routes/orders');
 
 const app = express();
 
-// Middleware
-app.use(cors());
+// CORS — allow requests from any Replit frontend
+const allowedOrigins = [
+  'https://c70c6c2e-0271-4eeb-96cb-8a803ade214c-00-3k0k1yqh80n4w.worf.replit.dev',
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    // Also allow any replit.dev subdomain
+    if (origin.endsWith('.replit.dev')) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
 app.use(express.json());
 
 // Routes
@@ -21,7 +44,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'returnkart-backend', timestamp: new Date().toISOString() });
 });
 
-// Root — lets Replit's webview know the server is alive
+// Root
 app.get('/', (req, res) => {
   res.json({ message: 'ReturnKart API is running', version: '1.0.0' });
 });
@@ -40,7 +63,6 @@ const connectDB = async () => {
   }
 };
 
-// IMPORTANT: Replit requires binding to 0.0.0.0
 const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0';
 
