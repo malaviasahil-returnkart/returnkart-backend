@@ -6,7 +6,6 @@ const User = require('../models/User');
 const Order = require('../models/Order');
 
 // ─── GET /api/email/auth-url ──────────────────────────────────────────────────
-// Step 1: Frontend calls this to get the Google login URL
 router.get('/auth-url', (req, res) => {
   const auth = getOAuthClient();
   const url = auth.generateAuthUrl({
@@ -22,17 +21,16 @@ router.get('/auth-url', (req, res) => {
 });
 
 // ─── GET /api/email/callback ──────────────────────────────────────────────────
-// Step 2: Google redirects here after user grants permission
-// Exchanges auth code for tokens, saves user to DB, redirects to frontend dashboard
 router.get('/callback', async (req, res) => {
   const { code, error } = req.query;
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
   if (error) {
-    return res.redirect(`${process.env.FRONTEND_URL}?error=access_denied`);
+    return res.redirect(`${frontendUrl}?error=access_denied`);
   }
 
   if (!code) {
-    return res.status(400).json({ error: 'Missing auth code' });
+    return res.redirect(`${frontendUrl}?error=missing_code`);
   }
 
   try {
@@ -59,19 +57,15 @@ router.get('/callback', async (req, res) => {
       { upsert: true, new: true }
     );
 
-    // Redirect to frontend with userId so frontend knows who's logged in
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    res.redirect(`${frontendUrl}/dashboard?userId=${user._id}&email=${encodeURIComponent(user.email)}`);
+    // Redirect to frontend dashboard with userId
+    res.redirect(`${frontendUrl}/dashboard?userId=${user._id}&email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name || '')}`);
   } catch (err) {
     console.error('OAuth callback error:', err.message);
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     res.redirect(`${frontendUrl}?error=oauth_failed`);
   }
 });
 
 // ─── POST /api/email/sync ─────────────────────────────────────────────────────
-// Step 3: Sync Gmail orders for a user
-// Body: { userId: string }
 router.post('/sync', async (req, res) => {
   const { userId } = req.body;
 
@@ -80,31 +74,25 @@ router.post('/sync', async (req, res) => {
   }
 
   try {
-    // Load user and their tokens from DB
     const user = await User.findById(userId);
     if (!user || !user.accessToken) {
       return res.status(401).json({ error: 'User not found or not connected to Gmail' });
     }
 
-    // Refresh token if expired
     let accessToken = user.accessToken;
     if (user.tokenExpiry && new Date() > user.tokenExpiry && user.refreshToken) {
       const auth = getOAuthClient();
       auth.setCredentials({ refresh_token: user.refreshToken });
       const { credentials } = await auth.refreshAccessToken();
       accessToken = credentials.access_token;
-
-      // Save refreshed token
       await User.findByIdAndUpdate(userId, {
         accessToken: credentials.access_token,
         tokenExpiry: credentials.expiry_date ? new Date(credentials.expiry_date) : null,
       });
     }
 
-    // Fetch and parse emails
     const parsedOrders = await fetchOrderEmails(accessToken, 50);
 
-    // Save to MongoDB — upsert by gmailMessageId
     let added = 0;
     let updated = 0;
 
@@ -138,12 +126,7 @@ router.post('/sync', async (req, res) => {
       }
     }
 
-    res.json({
-      success: true,
-      added,
-      updated,
-      total: parsedOrders.length,
-    });
+    res.json({ success: true, added, updated, total: parsedOrders.length });
   } catch (err) {
     console.error('Email sync error:', err.message);
     res.status(500).json({ error: 'Failed to sync emails', details: err.message });
@@ -170,13 +153,11 @@ router.post('/refresh-token', async (req, res) => {
 
     res.json({ success: true, expiry_date: credentials.expiry_date });
   } catch (err) {
-    console.error('Token refresh error:', err.message);
     res.status(500).json({ error: 'Failed to refresh token' });
   }
 });
 
 // ─── GET /api/email/status/:userId ───────────────────────────────────────────
-// Check if a user has Gmail connected
 router.get('/status/:userId', async (req, res) => {
   try {
     const user = await User.findById(req.params.userId).select('email name picture tokenExpiry');
