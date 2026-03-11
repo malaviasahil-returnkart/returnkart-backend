@@ -8,9 +8,12 @@ const orderRoutes = require('./routes/orders');
 
 const app = express();
 
-// CORS — allow requests from any Replit frontend
+// CORS — allow requests from any Replit frontend + custom domain
 const allowedOrigins = [
   'https://c70c6c2e-0271-4eeb-96cb-8a803ade214c-00-3k0k1yqh80n4w.worf.replit.dev',
+  'https://return-manager.replit.app',
+  'https://returnkart.in',
+  'https://www.returnkart.in',
   'http://localhost:5173',
   'http://localhost:3000',
 ];
@@ -22,8 +25,8 @@ app.use(cors({
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    // Also allow any replit.dev subdomain
-    if (origin.endsWith('.replit.dev')) {
+    // Also allow any replit.dev or replit.app subdomain
+    if (origin.endsWith('.replit.dev') || origin.endsWith('.replit.app')) {
       return callback(null, true);
     }
     return callback(new Error('Not allowed by CORS'));
