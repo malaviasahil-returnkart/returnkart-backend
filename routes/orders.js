@@ -1,141 +1,92 @@
 const express = require('express');
 const router = express.Router();
-const Order = require('../models/Order');
+const supabase = require('../db/supabase');
 
-// ─── GET /api/orders ──────────────────────────────────────────────────────────
+function computeStatus(returnDeadline, currentStatus) {
+  if (['returned', 'return_initiated'].includes(currentStatus)) return currentStatus;
+  if (!returnDeadline) return 'active';
+  const now = new Date();
+  const daysLeft = (new Date(returnDeadline) - now) / (1000 * 60 * 60 * 24);
+  if (daysLeft < 0) return 'expired';
+  if (daysLeft <= 2) return 'expiring_soon';
+  return 'active';
+}
+
+// GET /api/orders
 router.get('/', async (req, res) => {
   try {
     const { platform, status, expiring_soon } = req.query;
-    const filter = {};
-
-    if (platform) filter.platform = platform;
-    if (status) filter.refundStatus = status;
-    if (expiring_soon === 'true') {
-      filter.daysRemaining = { $gte: 0, $lte: 3 };
-    }
-
-    const orders = await Order.find(filter).sort({ returnDeadline: 1, createdAt: -1 });
-    res.json(orders);
+    let query = supabase.from('orders').select('*');
+    if (platform) query = query.eq('platform', platform);
+    if (expiring_soon === 'true') query = query.eq('status', 'expiring_soon');
+    else if (status) query = query.eq('status', status);
+    query = query.order('return_deadline', { ascending: true });
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ─── GET /api/orders/summary/stats ───────────────────────────────────────────
+// GET /api/orders/summary/stats
 router.get('/summary/stats', async (req, res) => {
   try {
-    const total = await Order.countDocuments();
-    const expiringSoon = await Order.countDocuments({ daysRemaining: { $gte: 0, $lte: 3 } });
-    const expired = await Order.countDocuments({ daysRemaining: { $lt: 0 } });
-    const activeReturns = await Order.countDocuments({ emailType: 'return' });
-    const pendingRefunds = await Order.countDocuments({ refundStatus: 'pending' });
-
-    const byPlatformAgg = await Order.aggregate([
-      { $group: { _id: '$platform', count: { $sum: 1 } } },
-    ]);
-    const byPlatform = Object.fromEntries(byPlatformAgg.map(p => [p._id, p.count]));
-
-    res.json({ total, expiringSoon, expired, activeReturns, pendingRefunds, byPlatform });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ─── GET /api/orders/:id ──────────────────────────────────────────────────────
-router.get('/:id', async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ error: 'Order not found' });
-    res.json(order);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ─── POST /api/orders ─────────────────────────────────────────────────────────
-// Manual add from dashboard "Add Order" form
-router.post('/', async (req, res) => {
-  try {
-    const { orderNumber, merchant, amount, purchaseDate, status } = req.body;
-
-    if (!orderNumber || !merchant || !amount) {
-      return res.status(400).json({ error: 'orderNumber, merchant, and amount are required' });
-    }
-
-    const order = await Order.create({
-      orderNumber,
-      merchant,
-      amount: parseFloat(amount),
-      purchaseDate: purchaseDate ? new Date(purchaseDate) : new Date(),
-      status: status || 'delivered',
-      refundStatus: 'none',
+    const { data, error } = await supabase.from('orders').select('status');
+    if (error) throw error;
+    const stats = { total: data.length, active: 0, expiring_soon: 0, expired: 0, returned: 0 };
+    data.forEach(o => {
+      if (o.status === 'active') stats.active++;
+      else if (o.status === 'expiring_soon') stats.expiring_soon++;
+      else if (o.status === 'expired') stats.expired++;
+      else if (['returned', 'return_initiated'].includes(o.status)) stats.returned++;
     });
-
-    res.status(201).json(order);
+    res.json(stats);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ─── POST /api/orders/bulk ────────────────────────────────────────────────────
-// Bulk upsert from Gmail parser
+// GET /api/orders/:orderId
+router.get('/:orderId', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('order_id', req.params.orderId)
+      .single();
+    if (error || !data) return res.status(404).json({ error: 'Order not found' });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/orders/bulk
 router.post('/bulk', async (req, res) => {
   try {
     const { orders } = req.body;
-    if (!Array.isArray(orders)) {
-      return res.status(400).json({ error: 'orders must be an array' });
-    }
-
-    let added = 0;
-    let updated = 0;
-
-    for (const order of orders) {
-      // Map parser fields to model fields
-      const doc = {
-        orderNumber: order.orderId || order.orderNumber || `PARSED-${Date.now()}`,
-        merchant: order.platform || order.merchant || 'Unknown',
-        amount: order.amount || 0,
-        purchaseDate: order.receivedAt || new Date(),
-        gmailMessageId: order.gmailMessageId,
-        platform: order.platform,
-        emailType: order.emailType,
-        orderId: order.orderId,
-        productName: order.productName,
-        otp: order.otp,
-        deliveryDate: order.deliveryDate,
-        returnDeadline: order.returnDeadline,
-        daysRemaining: order.daysRemaining,
-        returnWindowDays: order.returnWindowDays,
-        rawSnippet: order.rawSnippet,
-      };
-
-      if (order.gmailMessageId) {
-        const existing = await Order.findOne({ gmailMessageId: order.gmailMessageId });
-        if (existing) {
-          await Order.updateOne({ gmailMessageId: order.gmailMessageId }, { $set: doc });
-          updated++;
-        } else {
-          await Order.create(doc);
-          added++;
-        }
-      } else {
-        await Order.create(doc);
-        added++;
-      }
-    }
-
-    res.json({ success: true, added, updated });
+    if (!Array.isArray(orders)) return res.status(400).json({ error: 'orders must be an array' });
+    const { data, error } = await supabase
+      .from('orders')
+      .upsert(orders, { onConflict: 'order_id' })
+      .select();
+    if (error) throw error;
+    res.json({ saved: data.length, orders: data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ─── DELETE /api/orders/:id ───────────────────────────────────────────────────
-router.delete('/:id', async (req, res) => {
+// DELETE /api/orders/:orderId
+router.delete('/:orderId', async (req, res) => {
   try {
-    const result = await Order.findByIdAndDelete(req.params.id);
-    if (!result) return res.status(404).json({ error: 'Order not found' });
-    res.json({ success: true });
+    const { error } = await supabase
+      .from('orders')
+      .delete()
+      .eq('order_id', req.params.orderId);
+    if (error) throw error;
+    res.json({ deleted: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

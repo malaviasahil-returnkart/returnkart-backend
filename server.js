@@ -1,34 +1,25 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const mongoose = require('mongoose');
 
 const emailRoutes = require('./routes/email');
 const orderRoutes = require('./routes/orders');
 
 const app = express();
 
-// CORS — allow requests from any Replit frontend + custom domain
 const allowedOrigins = [
-  'https://c70c6c2e-0271-4eeb-96cb-8a803ade214c-00-3k0k1yqh80n4w.worf.replit.dev',
   'https://return-manager.replit.app',
   'https://returnkart.in',
   'https://www.returnkart.in',
-  'http://localhost:5173',
   'http://localhost:3000',
+  'http://localhost:5173',
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    // Also allow any replit.dev or replit.app subdomain
-    if (origin.endsWith('.replit.dev') || origin.endsWith('.replit.app')) {
-      return callback(null, true);
-    }
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (origin.endsWith('.replit.dev') || origin.endsWith('.replit.app')) return callback(null, true);
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
@@ -38,39 +29,18 @@ app.use(cors({
 
 app.use(express.json());
 
-// Routes
 app.use('/api/email', emailRoutes);
 app.use('/api/orders', orderRoutes);
 
-// Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'returnkart-backend', timestamp: new Date().toISOString() });
 });
 
-// Root
 app.get('/', (req, res) => {
-  res.json({ message: 'ReturnKart API is running', version: '1.0.0' });
+  res.json({ message: 'ReturnKart API is running', version: '2.0.0', db: 'supabase' });
 });
 
-// MongoDB connection
-const connectDB = async () => {
-  try {
-    if (process.env.MONGODB_URI) {
-      await mongoose.connect(process.env.MONGODB_URI);
-      console.log('✅ MongoDB connected');
-    } else {
-      console.warn('⚠️  MONGODB_URI not set — running without DB');
-    }
-  } catch (err) {
-    console.error('MongoDB connection error:', err.message);
-  }
-};
-
 const PORT = process.env.PORT || 3000;
-const HOST = '0.0.0.0';
-
-connectDB().then(() => {
-  app.listen(PORT, HOST, () => {
-    console.log(`🚀 ReturnKart backend running at http://${HOST}:${PORT}`);
-  });
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 ReturnKart backend running on port ${PORT}`);
 });

@@ -1,13 +1,12 @@
 modules = ["nodejs-20"]
-run = "npm install && node server.js"
+run = "npm install && npm start"
 
 [nix]
 channel = "stable-24_05"
 
+[deployment]
+run = ["sh", "-c", "npm start"]
+
 [[ports]]
 localPort = 3000
 externalPort = 80
-
-[deployment]
-run = ["sh", "-c", "npm install && node server.js"]
-deploymentTarget = "cloudrun"
