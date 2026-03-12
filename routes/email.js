@@ -9,7 +9,7 @@ function getOAuthClient() {
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI || 'https://return-manager.replit.app/auth/callback'
+    process.env.GOOGLE_REDIRECT_URI
   );
 }
 
@@ -31,7 +31,8 @@ router.get('/callback', async (req, res) => {
   try {
     const oauth2Client = getOAuthClient();
     const { tokens } = await oauth2Client.getToken(code);
-    res.json({ tokens });
+    const frontendUrl = process.env.FRONTEND_URL || 'https://return-manager.replit.app';
+    res.redirect(`${frontendUrl}/?tokens=${encodeURIComponent(JSON.stringify(tokens))}`);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
