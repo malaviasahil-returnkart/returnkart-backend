@@ -1,7 +1,7 @@
 # 📦 RETURNKART.IN — MASTER PROJECT STATUS
 Last Updated: 2026-03-15
 Current Phase: Phase 1 — In Progress
-Overall Progress: 5 / 45 tasks complete
+Overall Progress: 6 / 45 tasks complete
 
 ---
 
@@ -54,7 +54,7 @@ returnkart/                          ← Replit monorepo root
 ├── .env.example                     ✅ committed
 ├── .gitignore                       ✅ committed
 ├── .replit                          ✅ run = bash start.sh
-├── start.sh                         ✅ launches both processes
+├── start.sh                         ✅ launches both processes (venv-aware)
 ├── MASTER_PROJECT_STATUS.md
 │
 ├── backend/                         ← Python API + AI Engine
@@ -76,7 +76,7 @@ returnkart/                          ← Replit monorepo root
 │   │   ├── __init__.py              ✅
 │   │   └── order.py                 ✅ Pydantic contracts
 │   └── data/
-│       └── knowledge_base.json      ✅ RAG policy store
+│       └── knowledge_base.json      ✅ RAG policy store (5 platforms)
 │
 ├── frontend/                        ← React + Tailwind (Phase 2)
 │   └── src/                         ✅ directory created
@@ -85,7 +85,7 @@ returnkart/                          ← Replit monorepo root
 │   └── test_supabase.py             ✅ Phase 1 Task #11
 │
 └── docs/
-    ├── supabase_schema.sql          ✅ ready to run in Supabase
+    ├── supabase_schema.sql          ✅ executed via Supabase API
     └── api_spec.md                  ✅
 ```
 
@@ -97,24 +97,27 @@ returnkart/                          ← Replit monorepo root
 2. **`knowledge_base.json` in `backend/data/`** — Python process owns it, never served publicly.
 3. **`config.py` is the only `os.getenv()` caller** — all modules import constants from here.
 4. **PORT from environment** — `os.environ.get("PORT", 8000)`. Hardcoding crashes Replit deployments.
+5. **Python venv on Replit Nix** — pip installs go into `.venv/`. Nix store is immutable. Always `source .venv/bin/activate` first.
 
 ---
 
-## 🗄️ SUPABASE DATABASE SCHEMA
+## 🗄️ SUPABASE DATABASE
 
-### Tables (defined in docs/supabase_schema.sql)
-- **orders** — core entity with DPDP fields, UNIQUE(user_id, order_id)
-- **user_consents** — immutable DPDP audit log
-- **gmail_tokens** — per-user OAuth tokens
-- **evidence_locker** — unboxing photos/videos for disputes
+**Project ID:** `xxfofdkttxrmbymopajo` | **Region:** AWS ap-southeast-2
 
-### DPDP Compliance Fields (all user tables)
-- `consent_timestamp`, `purpose_id`, `data_expiry_date` (+24 months), `anonymization_status`
+### Tables — LIVE ✅
+| Table | Columns | RLS | Status |
+|-------|---------|-----|--------|
+| `orders` | 18 | ✅ 3 policies | Live |
+| `user_consents` | 8 | ✅ 2 policies | Live |
+| `gmail_tokens` | 8 | ✅ 1 policy | Live |
+| `evidence_locker` | 7 | ✅ 1 policy | Live |
 
-### Data Buckets
-- **Bucket A — Personal:** Name, Email, OAuth Tokens, Consent Log. Encrypted.
-- **Bucket B — Transactional:** Order ID, Brand, Price, Return Window. User-facing.
-- **Bucket C — Operational:** Anonymized logistics data. B2B monetization.
+### Indexes — LIVE ✅
+`idx_orders_user_id`, `idx_orders_return_deadline`, `idx_orders_status`, `idx_orders_brand`
+
+### DPDP Compliance Fields (orders table)
+`consent_timestamp`, `purpose_id`, `data_expiry_date`, `anonymization_status`
 
 ---
 
@@ -149,14 +152,14 @@ returnkart/                          ← Replit monorepo root
 
 Status Key: `[ ]` Not Started | `[~]` In Progress | `[x]` Done | `[!]` Blocked
 
-### PHASE 1: FOUNDATION SETUP (Weeks 1-4) — 5/16 Done
+### PHASE 1: FOUNDATION SETUP (Weeks 1-4) — 6/16 Done
 
 | # | Wk | Task | Owner | Priority | Status |
 |---|----|----|-------|----------|--------|
 | 1 | 1 | Register returnkart.in domain + hosting setup | Founder | Critical | [ ] |
 | 2 | 1 | Create Google Cloud project, enable Gmail API, OAuth consent | Founder | Critical | [ ] |
-| 3 | 1 | Set up Supabase project + get API keys | Dev | Critical | [ ] |
-| 4 | 1 | Create .env file with all 6 secrets in Replit Secrets | Dev | Critical | [~] |
+| 3 | 1 | Set up Supabase project + get API keys | Dev | Critical | [x] |
+| 4 | 1 | Add all 6 secrets to Replit Secrets | Dev | Critical | [~] |
 | 5 | 1 | Set up GitHub repo + .gitignore | Dev | High | [x] |
 | 6 | 2 | Design + implement full Supabase schema (4 core tables) | Dev | Critical | [x] |
 | 7 | 2 | Add DPDP compliance metadata fields to all tables | Dev | High | [x] |
@@ -164,7 +167,7 @@ Status Key: `[ ]` Not Started | `[~]` In Progress | `[x]` Done | `[!]` Blocked
 | 9 | 2 | Verify Supabase timestamps are IST (not UTC/US) | Dev | Critical | [ ] |
 | 10 | 3 | Build Gmail OAuth authentication flow | Dev | Critical | [ ] |
 | 11 | 3 | Write test_supabase.py to verify backend connection | Dev | Critical | [x] |
-| 12 | 3 | Execute CREATE TABLE SQL in Supabase dashboard | Dev | Critical | [ ] |
+| 12 | 3 | Execute CREATE TABLE SQL in Supabase | Dev | Critical | [x] |
 | 13 | 3 | Create email fetching script (5 platforms) | Dev | Critical | [ ] |
 | 14 | 4 | Implement extract_order_data (Gemini + RAG) | Dev | Critical | [ ] |
 | 15 | 4 | Write Supabase upsert logic (no duplicates) | Dev | Critical | [ ] |
@@ -242,7 +245,7 @@ Status Key: `[ ]` Not Started | `[~]` In Progress | `[x]` Done | `[!]` Blocked
 
 | Week # | Date Range | Tasks Planned | Tasks Completed | Blockers | Key Decisions | Next Week Focus |
 |--------|-----------|--------------|----------------|----------|---------------|-----------------|
-| 1 | 2026-03-14/15 | Arch review, folder scaffold, all foundation files | Tasks #5,6,7,8,11 complete. Schema SQL written. main.py + config.py live. | Need Supabase project + Google Cloud project + 6 secrets in Replit | Vite confirmed. Monorepo locked. FastAPI chosen. | Add secrets → run schema SQL → run test_supabase.py → build Gmail OAuth |
+| 1 | 2026-03-14/15 | Arch review, folder scaffold, foundation files, Supabase schema | #3,5,6,7,8,11,12 complete. All files in GitHub + Replit. .venv working with deps. 4 Supabase tables live with RLS. | Tasks #1,2,4 still need Founder action (domain, Google Cloud, secrets) | Vite confirmed. Monorepo locked. FastAPI chosen. venv for Nix pip. | Add secrets → run test_supabase.py → build Gmail OAuth (Task #10) |
 
 ---
 
