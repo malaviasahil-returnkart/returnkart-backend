@@ -1,49 +1,27 @@
-# ============================================================
-# RETURNKART.IN — GITIGNORE
-# ============================================================
-
-# --- Secrets (CRITICAL — never commit these) ---
+# Secrets — CRITICAL
 .env
 .env.local
 .env.production
 
-# --- Python ---
+# Python
 __pycache__/
-*.py[cod]
-*$py.class
 *.pyc
-.Python
-build/
-dist/
-*.egg-info/
-.eggs/
-venv/
 .venv/
-env/
-pip-wheel-metadata/
+venv/
 
-# --- Node / Frontend ---
+# Node
 node_modules/
 frontend/dist/
 frontend/.vite/
-.npm/
 
-# --- Replit ---
+# Replit
 .config/
 .upm/
 .breakpoints
 
-# --- OS ---
+# OS
 .DS_Store
-Thumbs.db
-*.swp
-*.swo
-
-# --- Test artifacts ---
-.pytest_cache/
-htmlcov/
-.coverage
-
-# --- Logs ---
 *.log
 logs/
+.pytest_cache/
+.coverage

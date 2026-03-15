@@ -2,8 +2,8 @@
   "_meta": {
     "version": "1.0.0",
     "last_updated": "2026-03-14",
-    "description": "ReturnKart AI RAG knowledge base — return policies for Indian e-commerce platforms",
-    "usage": "This file is read by backend/services/gemini_service.py to calculate return deadlines"
+    "description": "ReturnKart RAG knowledge base — return policies for Indian e-commerce platforms",
+    "usage": "Read by backend/services/gemini_service.py to calculate return deadlines"
   },
   "platforms": [
     {
@@ -29,22 +29,6 @@
           "non_returnable": ["Software", "Digital content"]
         },
         {
-          "category": "Books",
-          "return_window_days": 10,
-          "return_type": "refund",
-          "is_replacement_only": false,
-          "conditions": ["Damaged or defective only"],
-          "non_returnable": []
-        },
-        {
-          "category": "Home & Kitchen",
-          "return_window_days": 10,
-          "return_type": "refund",
-          "is_replacement_only": false,
-          "conditions": ["Unused", "Original packaging"],
-          "non_returnable": ["Perishables", "Hazardous materials"]
-        },
-        {
           "category": "Default",
           "return_window_days": 10,
           "return_type": "refund",
@@ -65,8 +49,8 @@
           "return_window_days": 14,
           "return_type": "refund",
           "is_replacement_only": false,
-          "conditions": ["Unused with original tags", "Within return window"],
-          "non_returnable": ["Innerwear", "Lingerie", "Fragrances", "Customized items"]
+          "conditions": ["Unused with original tags"],
+          "non_returnable": ["Innerwear", "Lingerie", "Fragrances"]
         },
         {
           "category": "Fashion Premium",
@@ -105,16 +89,8 @@
           "return_window_days": 7,
           "return_type": "replacement",
           "is_replacement_only": true,
-          "conditions": ["Original packaging", "Unboxing video required for disputes", "Technician visit may be required"],
+          "conditions": ["Original packaging", "Unboxing video required for disputes"],
           "non_returnable": ["Software", "Mobile recharges"]
-        },
-        {
-          "category": "Large Appliances",
-          "return_window_days": 7,
-          "return_type": "replacement",
-          "is_replacement_only": true,
-          "conditions": ["Technician visit required", "Original packaging"],
-          "non_returnable": []
         },
         {
           "category": "Default",
@@ -137,11 +113,7 @@
           "return_window_days": 7,
           "return_type": "refund",
           "is_replacement_only": false,
-          "conditions": [
-            "Continuous unboxing video REQUIRED for dispute resolution",
-            "Unused with original tags",
-            "Original packaging"
-          ],
+          "conditions": ["Continuous unboxing video REQUIRED", "Unused with original tags"],
           "non_returnable": ["Innerwear", "Customized items"]
         },
         {
