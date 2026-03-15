@@ -1,7 +1,7 @@
 # 📦 RETURNKART.IN — MASTER PROJECT STATUS
 Last Updated: 2026-03-15
 Current Phase: Phase 1 — In Progress
-Overall Progress: 6 / 45 tasks complete
+Overall Progress: 7 / 45 tasks complete
 
 ---
 
@@ -82,10 +82,10 @@ returnkart/                          ← Replit monorepo root
 │   └── src/                         ✅ directory created
 │
 ├── scripts/
-│   └── test_supabase.py             ✅ Phase 1 Task #11
+│   └── test_supabase.py             ✅ Phase 1 Task #11 — PASSES
 │
 └── docs/
-    ├── supabase_schema.sql          ✅ executed via Supabase API
+    ├── supabase_schema.sql          ✅ executed — 4 tables live
     └── api_spec.md                  ✅
 ```
 
@@ -101,23 +101,22 @@ returnkart/                          ← Replit monorepo root
 
 ---
 
-## 🗄️ SUPABASE DATABASE
+## 🗄️ SUPABASE DATABASE ✅ LIVE
 
 **Project ID:** `xxfofdkttxrmbymopajo` | **Region:** AWS ap-southeast-2
 
-### Tables — LIVE ✅
-| Table | Columns | RLS | Status |
-|-------|---------|-----|--------|
-| `orders` | 18 | ✅ 3 policies | Live |
-| `user_consents` | 8 | ✅ 2 policies | Live |
-| `gmail_tokens` | 8 | ✅ 1 policy | Live |
-| `evidence_locker` | 7 | ✅ 1 policy | Live |
+### Tables
+| Table | Columns | RLS | Indexes | Status |
+|-------|---------|-----|---------|--------|
+| `orders` | 18 | ✅ 3 policies | ✅ 4 indexes | Live |
+| `user_consents` | 8 | ✅ 2 policies | — | Live |
+| `gmail_tokens` | 8 | ✅ 1 policy | — | Live |
+| `evidence_locker` | 7 | ✅ 1 policy | — | Live |
 
-### Indexes — LIVE ✅
-`idx_orders_user_id`, `idx_orders_return_deadline`, `idx_orders_status`, `idx_orders_brand`
-
-### DPDP Compliance Fields (orders table)
-`consent_timestamp`, `purpose_id`, `data_expiry_date`, `anonymization_status`
+### Verified 2026-03-15
+- Connection: ✅ `xxfofdkttxrmbymopajo.supabase.co`
+- IST timezone: ✅ `2026-03-15 19:46:19 IST`
+- orders table: ✅ `0 rows returned`
 
 ---
 
@@ -152,7 +151,7 @@ returnkart/                          ← Replit monorepo root
 
 Status Key: `[ ]` Not Started | `[~]` In Progress | `[x]` Done | `[!]` Blocked
 
-### PHASE 1: FOUNDATION SETUP (Weeks 1-4) — 6/16 Done
+### PHASE 1: FOUNDATION SETUP (Weeks 1-4) — 7/16 Done
 
 | # | Wk | Task | Owner | Priority | Status |
 |---|----|----|-------|----------|--------|
@@ -164,7 +163,7 @@ Status Key: `[ ]` Not Started | `[~]` In Progress | `[x]` Done | `[!]` Blocked
 | 6 | 2 | Design + implement full Supabase schema (4 core tables) | Dev | Critical | [x] |
 | 7 | 2 | Add DPDP compliance metadata fields to all tables | Dev | High | [x] |
 | 8 | 2 | Configure Row-Level Security policies | Dev | High | [x] |
-| 9 | 2 | Verify Supabase timestamps are IST (not UTC/US) | Dev | Critical | [ ] |
+| 9 | 2 | Verify Supabase timestamps are IST | Dev | Critical | [x] |
 | 10 | 3 | Build Gmail OAuth authentication flow | Dev | Critical | [ ] |
 | 11 | 3 | Write test_supabase.py to verify backend connection | Dev | Critical | [x] |
 | 12 | 3 | Execute CREATE TABLE SQL in Supabase | Dev | Critical | [x] |
@@ -245,7 +244,7 @@ Status Key: `[ ]` Not Started | `[~]` In Progress | `[x]` Done | `[!]` Blocked
 
 | Week # | Date Range | Tasks Planned | Tasks Completed | Blockers | Key Decisions | Next Week Focus |
 |--------|-----------|--------------|----------------|----------|---------------|-----------------|
-| 1 | 2026-03-14/15 | Arch review, folder scaffold, foundation files, Supabase schema | #3,5,6,7,8,11,12 complete. All files in GitHub + Replit. .venv working with deps. 4 Supabase tables live with RLS. | Tasks #1,2,4 still need Founder action (domain, Google Cloud, secrets) | Vite confirmed. Monorepo locked. FastAPI chosen. venv for Nix pip. | Add secrets → run test_supabase.py → build Gmail OAuth (Task #10) |
+| 1 | 2026-03-14/15 | Arch review, folder scaffold, foundation files, Supabase schema | #3,5,6,7,8,9,11,12 complete (7/16). test_supabase.py PASSES. IST verified. 4 tables live with RLS + indexes. | Tasks #1,2,4 still need Founder action (domain, Google Cloud, Replit secrets) | Vite confirmed. Monorepo locked. FastAPI + venv pattern locked. | Task #2 (Google Cloud) → Task #4 (secrets) → Task #10 (Gmail OAuth) |
 
 ---
 
