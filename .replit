@@ -9,5 +9,6 @@ channel = "stable-24_05"
 PYTHONPATH = "${REPL_HOME}"
 
 [deployment]
-run = ["sh", "-c", "python backend/main.py"]
-build = ["sh", "-c", "cd frontend && npm install && npm run build"]
+# Phase 1: Python backend only. Frontend build added in Phase 2.
+# Replit Autoscale uses a container (not Nix) so pip works normally.
+run = ["sh", "-c", "pip install -r backend/requirements.txt -q && python backend/main.py"]
