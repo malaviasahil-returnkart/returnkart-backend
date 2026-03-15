@@ -1,4 +1,49 @@
-node_modules/
+# ============================================================
+# RETURNKART.IN — GITIGNORE
+# ============================================================
+
+# --- Secrets (CRITICAL — never commit these) ---
 .env
-*.log
+.env.local
+.env.production
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+venv/
+.venv/
+env/
+pip-wheel-metadata/
+
+# --- Node / Frontend ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+.npm/
+
+# --- Replit ---
+.config/
+.upm/
+.breakpoints
+
+# --- OS ---
 .DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# --- Test artifacts ---
+.pytest_cache/
+htmlcov/
+.coverage
+
+# --- Logs ---
+*.log
+logs/
