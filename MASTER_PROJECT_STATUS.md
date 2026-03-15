@@ -1,7 +1,7 @@
 # 📦 RETURNKART.IN — MASTER PROJECT STATUS
 Last Updated: 2026-03-15
 Current Phase: Phase 1 — In Progress
-Overall Progress: 7 / 45 tasks complete
+Overall Progress: 13 / 45 tasks complete
 
 ---
 
@@ -45,47 +45,42 @@ Returnkart.in is the "CIBIL of Commerce" — an automated audit layer that track
 
 ---
 
-## 📁 APPROVED FOLDER STRUCTURE
-*Locked by Lead Staff Engineer review — 2026-03-14*
+## 📁 FOLDER STRUCTURE — FULLY SCAFFOLDED ✅
 
 ```
-returnkart/                          ← Replit monorepo root
+returnkart/
 ├── .env                             🔒 SECRET — never commit
-├── .env.example                     ✅ committed
-├── .gitignore                       ✅ committed
-├── .replit                          ✅ run = bash start.sh
-├── start.sh                         ✅ launches both processes (venv-aware)
-├── MASTER_PROJECT_STATUS.md
+├── .env.example                     ✅
+├── .gitignore                       ✅
+├── .replit                          ✅
+├── start.sh                         ✅ venv-aware launcher
 │
-├── backend/                         ← Python API + AI Engine
-│   ├── main.py                      ✅ FastAPI entry
+├── backend/
+│   ├── main.py                      ✅ FastAPI — all routes wired, server LIVE
 │   ├── requirements.txt             ✅
 │   ├── config.py                    ✅ central secret loader
 │   ├── api/
-│   │   ├── __init__.py              ✅
 │   │   ├── health.py                ✅ GET /api/health
-│   │   ├── auth.py                  [ ] Phase 1 Task #10
-│   │   └── orders.py                [ ] Phase 1 Task #15
+│   │   ├── auth.py                  ✅ Gmail OAuth (Task #10)
+│   │   └── orders.py                ✅ CRUD + sync trigger (Task #15)
 │   ├── services/
-│   │   ├── __init__.py              ✅
-│   │   ├── gmail_service.py         [ ] Phase 1 Task #13
-│   │   ├── gemini_service.py        [ ] Phase 1 Task #14
-│   │   ├── supabase_service.py      [ ] Phase 1 Task #15
-│   │   └── return_calculator.py     [ ] Phase 1 Task #14
+│   │   ├── supabase_service.py      ✅ all DB ops (Task #15)
+│   │   ├── gmail_service.py         ✅ inbox sync, 5 platforms (Task #13)
+│   │   ├── gemini_service.py        ✅ RAG extraction (Task #14)
+│   │   └── return_calculator.py     ✅ pure deadline engine (Task #14)
 │   ├── models/
-│   │   ├── __init__.py              ✅
 │   │   └── order.py                 ✅ Pydantic contracts
 │   └── data/
 │       └── knowledge_base.json      ✅ RAG policy store (5 platforms)
 │
-├── frontend/                        ← React + Tailwind (Phase 2)
-│   └── src/                         ✅ directory created
+├── frontend/                        ← Phase 2
+│   └── src/                         ✅ directory ready
 │
 ├── scripts/
-│   └── test_supabase.py             ✅ Phase 1 Task #11 — PASSES
+│   └── test_supabase.py             ✅ PASSES
 │
 └── docs/
-    ├── supabase_schema.sql          ✅ executed — 4 tables live
+    ├── supabase_schema.sql          ✅ 4 tables live
     └── api_spec.md                  ✅
 ```
 
@@ -96,8 +91,25 @@ returnkart/                          ← Replit monorepo root
 1. **Vite proxy pattern** — React calls `/api/*` for writes; Supabase ANON key for reads. Service key never in browser.
 2. **`knowledge_base.json` in `backend/data/`** — Python process owns it, never served publicly.
 3. **`config.py` is the only `os.getenv()` caller** — all modules import constants from here.
-4. **PORT from environment** — `os.environ.get("PORT", 8000)`. Hardcoding crashes Replit deployments.
-5. **Python venv on Replit Nix** — pip installs go into `.venv/`. Nix store is immutable. Always `source .venv/bin/activate` first.
+4. **PORT from environment** — `os.environ.get("PORT", 8000)`. Hardcoding crashes Replit deployments. DO NOT set PORT as a Replit Secret.
+5. **Python venv on Replit Nix** — pip installs go into `.venv/`. Always `source .venv/bin/activate` first.
+
+---
+
+## 🌐 LIVE API ROUTES
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `/api/health` | Health check |
+| GET | `/api/auth/google` | Start Gmail OAuth |
+| GET | `/api/auth/callback` | OAuth callback — save tokens |
+| DELETE | `/api/auth/revoke` | DPDP: revoke Gmail access |
+| GET | `/api/auth/status` | Check if Gmail connected |
+| GET | `/api/orders` | List user's orders |
+| GET | `/api/orders/urgent` | Orders expiring soon |
+| PATCH | `/api/orders/{id}` | Update order status |
+| POST | `/api/orders/sync` | Trigger Gmail sync |
+| GET | `/api/docs` | Swagger UI (dev only) |
 
 ---
 
@@ -105,18 +117,14 @@ returnkart/                          ← Replit monorepo root
 
 **Project ID:** `xxfofdkttxrmbymopajo` | **Region:** AWS ap-southeast-2
 
-### Tables
-| Table | Columns | RLS | Indexes | Status |
-|-------|---------|-----|---------|--------|
-| `orders` | 18 | ✅ 3 policies | ✅ 4 indexes | Live |
-| `user_consents` | 8 | ✅ 2 policies | — | Live |
-| `gmail_tokens` | 8 | ✅ 1 policy | — | Live |
-| `evidence_locker` | 7 | ✅ 1 policy | — | Live |
+| Table | Columns | RLS | Status |
+|-------|---------|-----|--------|
+| `orders` | 18 | ✅ 3 policies + 4 indexes | Live |
+| `user_consents` | 8 | ✅ 2 policies | Live |
+| `gmail_tokens` | 8 | ✅ 1 policy | Live |
+| `evidence_locker` | 7 | ✅ 1 policy | Live |
 
-### Verified 2026-03-15
-- Connection: ✅ `xxfofdkttxrmbymopajo.supabase.co`
-- IST timezone: ✅ `2026-03-15 19:46:19 IST`
-- orders table: ✅ `0 rows returned`
+**Verified 2026-03-15:** Connection ✅ · IST timezone ✅ · orders table ✅
 
 ---
 
@@ -151,26 +159,26 @@ returnkart/                          ← Replit monorepo root
 
 Status Key: `[ ]` Not Started | `[~]` In Progress | `[x]` Done | `[!]` Blocked
 
-### PHASE 1: FOUNDATION SETUP (Weeks 1-4) — 7/16 Done
+### PHASE 1: FOUNDATION SETUP (Weeks 1-4) — 13/16 Done
 
 | # | Wk | Task | Owner | Priority | Status |
 |---|----|----|-------|----------|--------|
 | 1 | 1 | Register returnkart.in domain + hosting setup | Founder | Critical | [ ] |
-| 2 | 1 | Create Google Cloud project, enable Gmail API, OAuth consent | Founder | Critical | [ ] |
+| 2 | 1 | Create Google Cloud project, enable Gmail API, OAuth consent | Founder | Critical | [x] |
 | 3 | 1 | Set up Supabase project + get API keys | Dev | Critical | [x] |
-| 4 | 1 | Add all 6 secrets to Replit Secrets | Dev | Critical | [~] |
+| 4 | 1 | Add all 6 secrets to Replit Secrets | Dev | Critical | [x] |
 | 5 | 1 | Set up GitHub repo + .gitignore | Dev | High | [x] |
 | 6 | 2 | Design + implement full Supabase schema (4 core tables) | Dev | Critical | [x] |
 | 7 | 2 | Add DPDP compliance metadata fields to all tables | Dev | High | [x] |
 | 8 | 2 | Configure Row-Level Security policies | Dev | High | [x] |
 | 9 | 2 | Verify Supabase timestamps are IST | Dev | Critical | [x] |
-| 10 | 3 | Build Gmail OAuth authentication flow | Dev | Critical | [ ] |
+| 10 | 3 | Build Gmail OAuth authentication flow | Dev | Critical | [x] |
 | 11 | 3 | Write test_supabase.py to verify backend connection | Dev | Critical | [x] |
 | 12 | 3 | Execute CREATE TABLE SQL in Supabase | Dev | Critical | [x] |
-| 13 | 3 | Create email fetching script (5 platforms) | Dev | Critical | [ ] |
-| 14 | 4 | Implement extract_order_data (Gemini + RAG) | Dev | Critical | [ ] |
-| 15 | 4 | Write Supabase upsert logic (no duplicates) | Dev | Critical | [ ] |
-| 16 | 4 | CHECKPOINT: Gmail sync working, orders saving to Supabase | Both | Critical | [ ] |
+| 13 | 3 | Create email fetching script (5 platforms) | Dev | Critical | [x] |
+| 14 | 4 | Implement extract_order_data (Gemini + RAG) | Dev | Critical | [x] |
+| 15 | 4 | Write Supabase upsert logic (no duplicates) | Dev | Critical | [x] |
+| 16 | 4 | CHECKPOINT: Gmail sync working, orders saving to Supabase | Both | Critical | [~] |
 
 ### PHASE 2: PRODUCT BUILD (Weeks 5-12) — 0/10 Done
 
@@ -222,7 +230,7 @@ Status Key: `[ ]` Not Started | `[~]` In Progress | `[x]` Done | `[!]` Blocked
 
 | Target Week | Milestone | Status |
 |-------------|-----------|--------|
-| Week 4 | Gmail sync working, orders saving to Supabase | [~] In Progress |
+| Week 4 | Gmail sync working, orders saving to Supabase | [~] In Progress — backend live, OAuth ready, needs end-to-end test |
 | Week 12 | Feature-complete app ready for beta | [ ] Not Started |
 | Week 16 | Closed beta launched (100+ users) | [ ] Not Started |
 | Week 24 | 10K-50K users acquired | [ ] Not Started |
@@ -244,7 +252,7 @@ Status Key: `[ ]` Not Started | `[~]` In Progress | `[x]` Done | `[!]` Blocked
 
 | Week # | Date Range | Tasks Planned | Tasks Completed | Blockers | Key Decisions | Next Week Focus |
 |--------|-----------|--------------|----------------|----------|---------------|-----------------|
-| 1 | 2026-03-14/15 | Arch review, folder scaffold, foundation files, Supabase schema | #3,5,6,7,8,9,11,12 complete (7/16). test_supabase.py PASSES. IST verified. 4 tables live with RLS + indexes. | Tasks #1,2,4 still need Founder action (domain, Google Cloud, Replit secrets) | Vite confirmed. Monorepo locked. FastAPI + venv pattern locked. | Task #2 (Google Cloud) → Task #4 (secrets) → Task #10 (Gmail OAuth) |
+| 1 | 2026-03-14/15 | Full Phase 1 build | #2,3,4,5,6,7,8,9,10,11,12,13,14,15 — 13/16 tasks complete. Backend LIVE. All routes wired. Gemini+RAG+Gmail+Supabase all connected. | Task #1 (domain) still pending. Task #16 needs end-to-end OAuth test with real Gmail. | Vite confirmed. Monorepo locked. FastAPI + venv pattern locked. PORT secret removed. Old Google OAuth secret removed. | End-to-end test: connect Gmail → sync → verify orders in Supabase → Task #16 checkpoint |
 
 ---
 
