@@ -9,6 +9,6 @@ channel = "stable-24_05"
 PYTHONPATH = "${REPL_HOME}"
 
 [deployment]
-# Creates venv if missing, installs deps into it, then runs the server.
-# Nix store is immutable so pip must write to .venv, not system Python.
-run = ["sh", "-c", "python3.10 -m venv .venv 2>/dev/null || true && .venv/bin/pip install -r backend/requirements.txt -q && .venv/bin/python backend/main.py"]
+# .venv already exists with all deps installed. Just run directly.
+# No pip needed — avoids Nix immutable store error.
+run = [".venv/bin/python", "backend/main.py"]
