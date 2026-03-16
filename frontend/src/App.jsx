@@ -1,23 +1,19 @@
-import React, { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { api } from './lib/api'
 import Onboarding from './pages/Onboarding'
 import Dashboard from './pages/Dashboard'
-import Settings from './pages/Settings'
-
-// Simple auth context — reads user_id from localStorage
-// In production this would use Supabase auth session
-export const AuthContext = React.createContext(null)
 
 export default function App() {
   const [userId, setUserId] = useState(() => localStorage.getItem('rk_user_id'))
   const [gmailConnected, setGmailConnected] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [checking, setChecking] = useState(true)
 
-  // Check URL params for OAuth result
+  // Check URL params after OAuth redirect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('gmail') === 'connected') {
       setGmailConnected(true)
+      // Clean URL
       window.history.replaceState({}, '', '/')
     }
     if (params.get('error')) {
@@ -26,15 +22,40 @@ export default function App() {
     }
   }, [])
 
-  return (
-    <AuthContext.Provider value={{ userId, setUserId, gmailConnected, setGmailConnected, loading, setLoading }}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={userId && gmailConnected ? <Navigate to="/dashboard" /> : <Onboarding />} />
-          <Route path="/dashboard" element={userId ? <Dashboard /> : <Navigate to="/" />} />
-          <Route path="/settings" element={userId ? <Settings /> : <Navigate to="/" />} />
-        </Routes>
-      </BrowserRouter>
-    </AuthContext.Provider>
-  )
+  // Check Gmail connection status
+  useEffect(() => {
+    if (!userId) { setChecking(false); return }
+    api.authStatus(userId)
+      .then(data => setGmailConnected(data.connected))
+      .catch(() => {})
+      .finally(() => setChecking(false))
+  }, [userId])
+
+  function handleConnect(uid) {
+    localStorage.setItem('rk_user_id', uid)
+    setUserId(uid)
+    // Redirect to Gmail OAuth
+    window.location.href = api.gmailOAuthUrl(uid)
+  }
+
+  function handleDisconnect() {
+    if (userId) api.authRevoke(userId).catch(() => {})
+    localStorage.removeItem('rk_user_id')
+    setUserId(null)
+    setGmailConnected(false)
+  }
+
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-vault-black flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-vault-gold border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (!userId || !gmailConnected) {
+    return <Onboarding onConnect={handleConnect} />
+  }
+
+  return <Dashboard userId={userId} onDisconnect={handleDisconnect} />
 }

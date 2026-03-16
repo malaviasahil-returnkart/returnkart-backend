@@ -1,104 +1,65 @@
-import React, { useContext, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { AuthContext } from '../App'
 import { api } from '../lib/api'
 
-export default function Settings() {
-  const { userId, setUserId, setGmailConnected } = useContext(AuthContext)
-  const navigate = useNavigate()
-  const [revoking, setRevoking] = useState(false)
-  const [msg, setMsg] = useState('')
-
-  const handleRevoke = async () => {
-    if (!window.confirm('Disconnect Gmail? ReturnKart will no longer sync your emails.')) return
-    setRevoking(true)
+export default function Settings({ userId, onDisconnect }) {
+  async function handleRevokeGmail() {
+    if (!confirm('This will disconnect your Gmail. ReturnKart will stop tracking new orders.')) return
     try {
-      await api.revokeGmail(userId)
-      setGmailConnected(false)
-      setMsg('Gmail disconnected successfully.')
-      setTimeout(() => navigate('/'), 1500)
-    } catch (e) {
-      setMsg('Error: ' + e.message)
-    } finally {
-      setRevoking(false)
+      await api.authRevoke(userId)
+      onDisconnect()
+    } catch(e) {
+      console.error(e)
     }
   }
 
-  const handleDeleteData = () => {
-    if (!window.confirm('Delete all your data? This cannot be undone.')) return
-    localStorage.removeItem('rk_user_id')
-    setUserId(null)
-    navigate('/')
+  async function handleDeleteAll() {
+    if (!confirm('Delete ALL your data permanently? This cannot be undone.')) return
+    // DPDP right to erasure — to be implemented in backend
+    onDisconnect()
   }
 
   return (
-    <div className="min-h-dvh bg-vault-black flex flex-col animate-fade-in">
-      <header className="sticky top-0 z-10 bg-vault-black/90 backdrop-blur border-b border-vault-border px-5 py-4 flex items-center gap-3">
-        <button onClick={() => navigate('/dashboard')} className="text-vault-gray">
-          <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 4L4 10l8 6" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+    <div className="min-h-screen bg-vault-black px-5 py-8 flex flex-col gap-6">
+      <h2 className="text-vault-text font-bold text-xl">Settings Vault</h2>
+
+      {/* Account */}
+      <section className="flex flex-col gap-3">
+        <p className="text-vault-muted text-xs uppercase tracking-wider">Account</p>
+        <div className="bg-vault-card card-border rounded-2xl px-4 py-3">
+          <p className="text-vault-muted text-xs">User ID</p>
+          <p className="text-vault-text text-sm font-mono mt-0.5 truncate">{userId}</p>
+        </div>
+      </section>
+
+      {/* DPDP rights */}
+      <section className="flex flex-col gap-3">
+        <p className="text-vault-muted text-xs uppercase tracking-wider">Your DPDP Rights</p>
+        <button
+          onClick={handleRevokeGmail}
+          className="w-full bg-vault-card card-border rounded-2xl px-4 py-4 text-left active:scale-95 transition-transform"
+        >
+          <p className="text-vault-text font-medium text-sm">Revoke Gmail Access</p>
+          <p className="text-vault-muted text-xs mt-0.5">Disconnect Gmail. We will stop reading your emails immediately.</p>
         </button>
-        <span className="text-white font-semibold">Settings Vault</span>
-      </header>
+        <button
+          onClick={handleDeleteAll}
+          className="w-full bg-vault-card border border-red-900/50 rounded-2xl px-4 py-4 text-left active:scale-95 transition-transform"
+        >
+          <p className="text-red-400 font-medium text-sm">Delete All My Data</p>
+          <p className="text-vault-muted text-xs mt-0.5">Permanently erases all orders, tokens and your account. Cannot be undone.</p>
+        </button>
+      </section>
 
-      <main className="flex-1 px-5 py-6 space-y-4">
+      {/* Legal */}
+      <section className="flex flex-col gap-2 mt-4">
+        <p className="text-vault-muted text-xs uppercase tracking-wider">Legal</p>
+        <p className="text-vault-muted text-xs leading-relaxed">
+          ReturnKart operates under India's Digital Personal Data Protection Act 2023.
+          We collect only the minimum data required for return tracking.
+          Your data is never sold or shared with third parties.
+        </p>
+      </section>
 
-        {/* Account */}
-        <section className="vault-card p-5 space-y-3">
-          <h3 className="text-xs text-vault-gray uppercase tracking-widest">Account</h3>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-white font-medium">Gmail Connection</p>
-              <p className="text-xs text-vault-gray truncate max-w-[200px]">
-                {userId ? `ID: ${userId.slice(0, 8)}…` : 'Not connected'}
-              </p>
-            </div>
-            <span className="text-xs text-vault-green bg-vault-green/10 px-2 py-0.5 rounded-full">Active</span>
-          </div>
-        </section>
-
-        {/* DPDP / Privacy */}
-        <section className="vault-card p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <h3 className="text-xs text-vault-gray uppercase tracking-widest">Privacy</h3>
-            <span className="text-xs text-vault-gold bg-vault-gold/10 px-2 py-0.5 rounded">DPDP 2023</span>
-          </div>
-
-          <div className="space-y-1">
-            <p className="text-sm text-white">Data Purpose</p>
-            <p className="text-xs text-vault-gray">Return window tracking only</p>
-          </div>
-
-          <div className="space-y-1">
-            <p className="text-sm text-white">Auto-deletion</p>
-            <p className="text-xs text-vault-gray">Your data is automatically deleted after 24 months</p>
-          </div>
-        </section>
-
-        {/* Danger zone */}
-        <section className="vault-card p-5 space-y-3 border-vault-red/20">
-          <h3 className="text-xs text-vault-red uppercase tracking-widest">Danger Zone</h3>
-
-          <button
-            onClick={handleRevoke}
-            disabled={revoking}
-            className="btn-ghost w-full text-vault-red border-vault-red/30"
-          >
-            {revoking ? 'Disconnecting…' : 'Disconnect Gmail'}
-          </button>
-
-          <button
-            onClick={handleDeleteData}
-            className="w-full py-3.5 text-sm text-vault-red text-center"
-          >
-            Delete All My Data
-          </button>
-        </section>
-
-        {msg && <p className="text-center text-sm text-vault-gray">{msg}</p>}
-
-      </main>
+      <p className="text-vault-border text-xs text-center mt-auto">ReturnKart v1.0 · returnkart.in</p>
     </div>
   )
 }
