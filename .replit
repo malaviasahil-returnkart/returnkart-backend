@@ -6,8 +6,7 @@ hidden = [".config", ".upm", ".gitignore", "__pycache__"]
 channel = "stable-24_05"
 
 [env]
-PYTHONPATH = "${REPL_HOME}"
+PYTHONPATH = "/home/runner/workspace"
 
 [deployment]
-# Build frontend first, then start backend which serves it as static files
-run = ["sh", "-c", "cd frontend && npm install --silent && npm run build && cd .. && .venv/bin/python backend/main.py"]
+run = ["bash", "/home/runner/workspace/deploy.sh"]
