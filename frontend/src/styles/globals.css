@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Premium Vault base styles */
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+    box-sizing: border-box;
+  }
+
+  html, body {
+    background-color: #0A0A0A;
+    color: #FFFFFF;
+    font-family: 'Inter', 'Roboto', system-ui, sans-serif;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #root {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+@layer components {
+  /* Gold gradient text */
+  .text-gold-gradient {
+    background: linear-gradient(135deg, #D4AF37 0%, #F0D060 50%, #D4AF37 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Gold border glow for urgent items */
+  .border-urgent {
+    border-color: #D4AF37;
+    box-shadow: 0 0 12px rgba(212, 175, 55, 0.25);
+  }
+
+  /* Card base */
+  .vault-card {
+    @apply bg-vault-card rounded-2xl border border-vault-border;
+  }
+
+  /* Primary gold button */
+  .btn-gold {
+    @apply bg-vault-gold text-vault-black font-semibold rounded-xl
+           px-6 py-3.5 text-base
+           active:scale-95 transition-transform duration-100
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  /* Ghost button */
+  .btn-ghost {
+    @apply border border-vault-border text-vault-gray font-medium rounded-xl
+           px-6 py-3.5 text-base
+           active:scale-95 transition-transform duration-100;
+  }
+}
