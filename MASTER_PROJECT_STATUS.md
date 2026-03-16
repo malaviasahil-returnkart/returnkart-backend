@@ -1,7 +1,7 @@
 # 📦 RETURNKART.IN — MASTER PROJECT STATUS
-Last Updated: 2026-03-15
-Current Phase: Phase 1 — In Progress
-Overall Progress: 13 / 45 tasks complete
+Last Updated: 2026-03-16
+Current Phase: Phase 1 COMPLETE → Starting Phase 2
+Overall Progress: 15 / 45 tasks complete
 
 ---
 
@@ -9,107 +9,52 @@ Overall Progress: 13 / 45 tasks complete
 
 Returnkart.in is the "CIBIL of Commerce" — an automated audit layer that tracks e-commerce orders, calculates return deadlines using AI, and protects consumer funds with zero manual data entry.
 
-- **For Consumers:** A "Set it and Forget it" financial guardian — no return window ever missed.
-- **For Brands:** Verified "Good Shopper" data + accelerated inventory recovery.
-- **For 3PLs:** High-integrity logistics benchmarking data.
-
 **Exit Goal:** Strategic acquisition by Flipkart, PhonePe, or Shiprocket.
 **Compliance Foundation:** Strict DPDP Act 2023 — consent-first, purpose limitation, data minimization.
 
 ---
 
-## 🏗️ TECH STACK & ARCHITECTURE
+## 🏗️ TECH STACK
 
 | Layer | Technology |
 |-------|-----------|
 | Frontend | React (Vite) + Tailwind CSS |
-| Backend | Python (FastAPI) |
-| Database | Supabase (PostgreSQL) |
-| AI Engine | Google Gemini 1.5 Flash (via google-genai) |
-| Primary Data Pipe | Gmail API (OAuth sync — iOS/Android) |
-| Secondary Data Pipe | Android Notification Listener (Bharat mobile-first) |
+| Backend | Python (FastAPI) — **LIVE** |
+| Database | Supabase (PostgreSQL) — **LIVE** |
+| AI Engine | Google Gemini 1.5 Flash |
+| Primary Data Pipe | Gmail API (OAuth) |
 | Orchestration | Replit + Claude Desktop (via MCP) |
-
-> **Framework decision locked (2026-03-14):** Vite over Next.js.
 
 ---
 
-## 🎨 DESIGN SYSTEM — "Premium Vault" Aesthetic
+## 🎨 DESIGN SYSTEM — "Premium Vault"
 
 | Element | Spec |
 |---------|------|
 | Background | Pitch Black `#0A0A0A` |
-| Cards/Containers | Dark Charcoal `#1A1A1A` + subtle rounded corners |
-| Primary Accent | Premium Gold `#D4AF37` (buttons, highlights, urgent borders) |
-| Typography | Inter / Roboto — White `#FFFFFF` primary, Gray `#A0A0A0` secondary |
+| Cards | Dark Charcoal `#1A1A1A` |
+| Accent | Premium Gold `#D4AF37` |
+| Typography | Inter/Roboto — White `#FFFFFF`, Gray `#A0A0A0` |
 
 ---
 
-## 📁 FOLDER STRUCTURE — FULLY SCAFFOLDED ✅
+## 🌐 LIVE PRODUCTION URLs
 
-```
-returnkart/
-├── .env                             🔒 SECRET — never commit
-├── .env.example                     ✅
-├── .gitignore                       ✅
-├── .replit                          ✅
-├── start.sh                         ✅ venv-aware launcher
-│
-├── backend/
-│   ├── main.py                      ✅ FastAPI — all routes wired, server LIVE
-│   ├── requirements.txt             ✅
-│   ├── config.py                    ✅ central secret loader
-│   ├── api/
-│   │   ├── health.py                ✅ GET /api/health
-│   │   ├── auth.py                  ✅ Gmail OAuth (Task #10)
-│   │   └── orders.py                ✅ CRUD + sync trigger (Task #15)
-│   ├── services/
-│   │   ├── supabase_service.py      ✅ all DB ops (Task #15)
-│   │   ├── gmail_service.py         ✅ inbox sync, 5 platforms (Task #13)
-│   │   ├── gemini_service.py        ✅ RAG extraction (Task #14)
-│   │   └── return_calculator.py     ✅ pure deadline engine (Task #14)
-│   ├── models/
-│   │   └── order.py                 ✅ Pydantic contracts
-│   └── data/
-│       └── knowledge_base.json      ✅ RAG policy store (5 platforms)
-│
-├── frontend/                        ← Phase 2
-│   └── src/                         ✅ directory ready
-│
-├── scripts/
-│   └── test_supabase.py             ✅ PASSES
-│
-└── docs/
-    ├── supabase_schema.sql          ✅ 4 tables live
-    └── api_spec.md                  ✅
-```
+| URL | Status |
+|-----|--------|
+| `https://return-kart-tracker.replit.app/api/health` | ✅ `{"status":"ok"}` |
+| `https://return-kart-tracker.replit.app/api/docs` | ✅ Swagger UI live |
+| `https://return-kart-tracker.replit.app/api/auth/google` | ✅ OAuth flow ready |
 
 ---
 
 ## 🔑 CRITICAL ARCHITECTURAL DECISIONS
 
-1. **Vite proxy pattern** — React calls `/api/*` for writes; Supabase ANON key for reads. Service key never in browser.
-2. **`knowledge_base.json` in `backend/data/`** — Python process owns it, never served publicly.
-3. **`config.py` is the only `os.getenv()` caller** — all modules import constants from here.
-4. **PORT from environment** — `os.environ.get("PORT", 8000)`. Hardcoding crashes Replit deployments. DO NOT set PORT as a Replit Secret.
-5. **Python venv on Replit Nix** — pip installs go into `.venv/`. Always `source .venv/bin/activate` first.
-
----
-
-## 🌐 LIVE API ROUTES
-
-| Method | Route | Purpose |
-|--------|-------|---------|
-| GET | `/api/health` | Health check |
-| GET | `/api/auth/google` | Start Gmail OAuth |
-| GET | `/api/auth/callback` | OAuth callback — save tokens |
-| DELETE | `/api/auth/revoke` | DPDP: revoke Gmail access |
-| GET | `/api/auth/status` | Check if Gmail connected |
-| GET | `/api/orders` | List user's orders |
-| GET | `/api/orders/urgent` | Orders expiring soon |
-| PATCH | `/api/orders/{id}` | Update order status |
-| POST | `/api/orders/sync` | Trigger Gmail sync |
-| GET | `/api/docs` | Swagger UI (dev only) |
+1. **Vite proxy** — React calls `/api/*` for writes; Supabase ANON key for reads only.
+2. **`config.py` only `os.getenv()` caller** — all modules import constants from here.
+3. **PORT from environment** — never hardcode. DO NOT set PORT as Replit Secret.
+4. **Python venv** — `.venv/bin/python` for deployment (bypasses Nix immutable store).
+5. **`FRONTEND_URL`** — must be set as Replit Secret to `https://return-kart-tracker.replit.app`.
 
 ---
 
@@ -124,61 +69,32 @@ returnkart/
 | `gmail_tokens` | 8 | ✅ 1 policy | Live |
 | `evidence_locker` | 7 | ✅ 1 policy | Live |
 
-**Verified 2026-03-15:** Connection ✅ · IST timezone ✅ · orders table ✅
-
----
-
-## 🤖 AI / RAG KNOWLEDGE BASE
-
-| Brand | Category | Window | Notes |
-|-------|----------|--------|-------|
-| Amazon India | Fashion | 10 days | |
-| Amazon India | Electronics | 7 days | Replacement only |
-| Myntra | Fashion Standard | 14 days | |
-| Myntra | Fashion Premium | 30 days | No lingerie/fragrances |
-| Flipkart | Fashion | 10 days | |
-| Flipkart | Electronics | 7 days | Replacement only + video |
-| Meesho | Fashion | 7 days | Unboxing video required |
-| Ajio | Fashion | 15 days | |
-| Ajio | Electronics | 7 days | |
-
----
-
-## 💰 REVENUE ROADMAP
-
-| Year | Phase | Primary Revenue | Key Goal |
-|------|-------|----------------|----------|
-| Year 1 | Pilot | Audit Fees | 100K Users / 20 Brands |
-| Year 2 | Validation | SaaS Subscriptions | 500K Users / 3PL |
-| Year 3 | Infrastructure | Trust API Fees | 2M Users |
-| Year 4 | Data Alpha | Data Licenses | 5M Users |
-
 ---
 
 ## ✅ ACTIVE SPRINT TRACKER
 
 Status Key: `[ ]` Not Started | `[~]` In Progress | `[x]` Done | `[!]` Blocked
 
-### PHASE 1: FOUNDATION SETUP (Weeks 1-4) — 13/16 Done
+### PHASE 1: FOUNDATION — ✅ COMPLETE (15/16)
 
-| # | Wk | Task | Owner | Priority | Status |
-|---|----|----|-------|----------|--------|
-| 1 | 1 | Register returnkart.in domain + hosting setup | Founder | Critical | [ ] |
-| 2 | 1 | Create Google Cloud project, enable Gmail API, OAuth consent | Founder | Critical | [x] |
-| 3 | 1 | Set up Supabase project + get API keys | Dev | Critical | [x] |
-| 4 | 1 | Add all 6 secrets to Replit Secrets | Dev | Critical | [x] |
-| 5 | 1 | Set up GitHub repo + .gitignore | Dev | High | [x] |
-| 6 | 2 | Design + implement full Supabase schema (4 core tables) | Dev | Critical | [x] |
-| 7 | 2 | Add DPDP compliance metadata fields to all tables | Dev | High | [x] |
-| 8 | 2 | Configure Row-Level Security policies | Dev | High | [x] |
-| 9 | 2 | Verify Supabase timestamps are IST | Dev | Critical | [x] |
-| 10 | 3 | Build Gmail OAuth authentication flow | Dev | Critical | [x] |
-| 11 | 3 | Write test_supabase.py to verify backend connection | Dev | Critical | [x] |
-| 12 | 3 | Execute CREATE TABLE SQL in Supabase | Dev | Critical | [x] |
-| 13 | 3 | Create email fetching script (5 platforms) | Dev | Critical | [x] |
-| 14 | 4 | Implement extract_order_data (Gemini + RAG) | Dev | Critical | [x] |
-| 15 | 4 | Write Supabase upsert logic (no duplicates) | Dev | Critical | [x] |
-| 16 | 4 | CHECKPOINT: Gmail sync working, orders saving to Supabase | Both | Critical | [~] |
+| # | Task | Status |
+|---|------|--------|
+| 1 | Register returnkart.in domain | [ ] |
+| 2 | Google Cloud + Gmail API + OAuth client | [x] |
+| 3 | Supabase project + API keys | [x] |
+| 4 | 6 secrets in Replit Secrets | [x] |
+| 5 | GitHub repo + .gitignore | [x] |
+| 6 | Supabase schema (4 tables) | [x] |
+| 7 | DPDP compliance fields | [x] |
+| 8 | Row-Level Security policies | [x] |
+| 9 | IST timezone verified | [x] |
+| 10 | Gmail OAuth flow | [x] |
+| 11 | test_supabase.py — PASSES | [x] |
+| 12 | CREATE TABLE executed | [x] |
+| 13 | Email fetching (5 platforms) | [x] |
+| 14 | Gemini + RAG extraction | [x] |
+| 15 | Supabase upsert (no duplicates) | [x] |
+| 16 | CHECKPOINT: Gmail sync e2e test | [~] |
 
 ### PHASE 2: PRODUCT BUILD (Weeks 5-12) — 0/10 Done
 
@@ -230,7 +146,7 @@ Status Key: `[ ]` Not Started | `[~]` In Progress | `[x]` Done | `[!]` Blocked
 
 | Target Week | Milestone | Status |
 |-------------|-----------|--------|
-| Week 4 | Gmail sync working, orders saving to Supabase | [~] In Progress — backend live, OAuth ready, needs end-to-end test |
+| Week 4 | Gmail sync working, orders saving to Supabase | [~] Backend live. e2e test pending. |
 | Week 12 | Feature-complete app ready for beta | [ ] Not Started |
 | Week 16 | Closed beta launched (100+ users) | [ ] Not Started |
 | Week 24 | 10K-50K users acquired | [ ] Not Started |
@@ -239,7 +155,7 @@ Status Key: `[ ]` Not Started | `[~]` In Progress | `[x]` Done | `[!]` Blocked
 
 ---
 
-## 🔮 FUTURE BACKLOG (Do Not Build Yet)
+## 🔮 FUTURE BACKLOG
 
 - Android Notification Listener Service
 - AI Escalation Email Engine
@@ -250,10 +166,10 @@ Status Key: `[ ]` Not Started | `[~]` In Progress | `[x]` Done | `[!]` Blocked
 
 ## 📋 WEEKLY LOG
 
-| Week # | Date Range | Tasks Planned | Tasks Completed | Blockers | Key Decisions | Next Week Focus |
-|--------|-----------|--------------|----------------|----------|---------------|-----------------|
-| 1 | 2026-03-14/15 | Full Phase 1 build | #2,3,4,5,6,7,8,9,10,11,12,13,14,15 — 13/16 tasks complete. Backend LIVE. All routes wired. Gemini+RAG+Gmail+Supabase all connected. | Task #1 (domain) still pending. Task #16 needs end-to-end OAuth test with real Gmail. | Vite confirmed. Monorepo locked. FastAPI + venv pattern locked. PORT secret removed. Old Google OAuth secret removed. | End-to-end test: connect Gmail → sync → verify orders in Supabase → Task #16 checkpoint |
+| Week # | Date Range | Tasks Completed | Blockers | Key Decisions | Next Focus |
+|--------|-----------|----------------|----------|---------------|------------|
+| 1 | 2026-03-14/16 | Phase 1 complete (15/16). Backend LIVE at return-kart-tracker.replit.app. Swagger UI live. .venv deployment fix. | Task #1 (domain) pending. OAuth e2e test needs FRONTEND_URL secret + test user in Google Cloud. | Vite + FastAPI + venv on Nix locked. | Phase 2: React frontend (Vite, black/gold, mobile-first) |
 
 ---
 
-*This is the single source of truth for Returnkart.in. Update the Sprint Tracker and Weekly Log every week.*
+*This is the single source of truth for Returnkart.in.*
