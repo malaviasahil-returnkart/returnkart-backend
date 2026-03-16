@@ -1,8 +1,7 @@
-/**
- * Shared formatters for dates, currency, countdown timers.
- */
+// ReturnKart — shared formatting utilities
 
 export function formatINR(amount) {
+  if (amount == null) return '—'
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
@@ -10,9 +9,17 @@ export function formatINR(amount) {
   }).format(amount)
 }
 
+export function formatDate(dateStr) {
+  if (!dateStr) return '—'
+  const d = new Date(dateStr)
+  if (isNaN(d)) return '—'
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
 export function daysRemaining(deadlineStr) {
   if (!deadlineStr) return null
   const deadline = new Date(deadlineStr)
+  if (isNaN(deadline)) return null
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   deadline.setHours(0, 0, 0, 0)
@@ -22,40 +29,17 @@ export function daysRemaining(deadlineStr) {
 export function urgencyLevel(days) {
   if (days === null) return 'unknown'
   if (days < 0) return 'expired'
-  if (days <= 1) return 'critical'
-  if (days <= 3) return 'urgent'
-  if (days <= 7) return 'warning'
+  if (days <= 2) return 'critical'
+  if (days <= 5) return 'urgent'
   return 'safe'
 }
 
 export function urgencyColor(level) {
   switch (level) {
+    case 'critical': return '#FF6B6B'
+    case 'urgent':   return '#D4AF37'
+    case 'safe':     return '#4ADE80'
     case 'expired':  return '#666666'
-    case 'critical': return '#FF4444'
-    case 'urgent':   return '#FF8C00'
-    case 'warning':  return '#FFD700'
-    default:         return '#22C55E'
+    default:         return '#A0A0A0'
   }
-}
-
-export function formatDate(dateStr) {
-  if (!dateStr) return '—'
-  return new Date(dateStr).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric'
-  })
-}
-
-export function brandSlug(brand) {
-  return brand?.toLowerCase().replace(/\s+/g, '') || 'unknown'
-}
-
-export function brandColor(brand) {
-  const colors = {
-    amazon: '#FF9900',
-    myntra: '#FF3F6C',
-    flipkart: '#2874F0',
-    meesho: '#9C27B0',
-    ajio: '#1B1B1B',
-  }
-  return colors[brandSlug(brand)] || '#D4AF37'
 }
