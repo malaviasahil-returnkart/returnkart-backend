@@ -34,6 +34,13 @@ GOOGLE_REDIRECT_URI: str = os.getenv(
 # Gemini AI
 GEMINI_API_KEY: str = _require("GEMINI_API_KEY")
 
+# WhatsApp Business API (Meta Cloud API)
+# WHATSAPP_VERIFY_TOKEN  — any string you choose; entered in Meta Developer Console
+# WHATSAPP_APP_SECRET    — from Meta App Dashboard > App Settings > Basic > App Secret
+# Both go in Replit Secrets (Deployments tab too)
+WHATSAPP_VERIFY_TOKEN: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
+WHATSAPP_APP_SECRET: str = os.getenv("WHATSAPP_APP_SECRET", "")
+
 # App — PORT is injected by Replit. NEVER hardcode.
 PORT: int = int(os.getenv("PORT", "8000"))
 FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://return-kart-tracker.replit.app")
