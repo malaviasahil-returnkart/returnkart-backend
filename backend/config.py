@@ -23,7 +23,7 @@ SUPABASE_URL: str = _require("SUPABASE_URL")
 SUPABASE_SERVICE_KEY: str = _require("SUPABASE_SERVICE_KEY")
 SUPABASE_ANON_KEY: str = _require("SUPABASE_ANON_KEY")
 
-# Google OAuth
+# Google OAuth (Gmail)
 GOOGLE_CLIENT_ID: str = _require("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET: str = _require("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI: str = os.getenv(
@@ -31,13 +31,20 @@ GOOGLE_REDIRECT_URI: str = os.getenv(
     "https://return-kart-tracker.replit.app/api/auth/callback"
 )
 
+# Microsoft OAuth (Outlook / Hotmail)
+# Setup: portal.azure.com → App Registrations → New registration
+# Redirect URI: https://return-kart-tracker.replit.app/api/email/outlook/callback
+MICROSOFT_CLIENT_ID: str = os.getenv("MICROSOFT_CLIENT_ID", "")
+MICROSOFT_CLIENT_SECRET: str = os.getenv("MICROSOFT_CLIENT_SECRET", "")
+MICROSOFT_REDIRECT_URI: str = os.getenv(
+    "MICROSOFT_REDIRECT_URI",
+    "https://return-kart-tracker.replit.app/api/email/outlook/callback"
+)
+
 # Gemini AI
 GEMINI_API_KEY: str = _require("GEMINI_API_KEY")
 
 # WhatsApp Business API (Meta Cloud API)
-# WHATSAPP_VERIFY_TOKEN  — any string you choose; entered in Meta Developer Console
-# WHATSAPP_APP_SECRET    — from Meta App Dashboard > App Settings > Basic > App Secret
-# Both go in Replit Secrets (Deployments tab too)
 WHATSAPP_VERIFY_TOKEN: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
 WHATSAPP_APP_SECRET: str = os.getenv("WHATSAPP_APP_SECRET", "")
 

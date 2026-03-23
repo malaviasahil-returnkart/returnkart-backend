@@ -15,6 +15,7 @@ from backend.api.health import router as health_router
 from backend.api.auth import router as auth_router
 from backend.api.orders import router as orders_router
 from backend.api.whatsapp import router as whatsapp_router
+from backend.api.email_providers import router as email_providers_router
 
 app = FastAPI(
     title="ReturnKart.in API",
@@ -33,19 +34,18 @@ app.add_middleware(
 )
 
 # API Routes
-app.include_router(health_router,   prefix="/api")
-app.include_router(auth_router,     prefix="/api/auth",      tags=["auth"])
-app.include_router(orders_router,   prefix="/api/orders",    tags=["orders"])
-app.include_router(whatsapp_router, prefix="/api/whatsapp",  tags=["whatsapp"])
+app.include_router(health_router,          prefix="/api")
+app.include_router(auth_router,            prefix="/api/auth",    tags=["auth"])
+app.include_router(orders_router,          prefix="/api/orders",  tags=["orders"])
+app.include_router(whatsapp_router,        prefix="/api/whatsapp",tags=["whatsapp"])
+app.include_router(email_providers_router, prefix="/api/email",   tags=["email"])
 
 # Serve React frontend from /frontend/dist
 DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
 if DIST.exists():
-    # Serve static assets (JS, CSS, images)
     app.mount("/assets", StaticFiles(directory=str(DIST / "assets")), name="assets")
 
-    # Catch-all: serve index.html for all non-API routes (SPA routing)
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         index = DIST / "index.html"
