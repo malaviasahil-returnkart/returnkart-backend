@@ -14,6 +14,7 @@ from backend.config import PORT, FRONTEND_URL, ENV
 from backend.api.health import router as health_router
 from backend.api.auth import router as auth_router
 from backend.api.orders import router as orders_router
+from backend.api.whatsapp import router as whatsapp_router
 
 app = FastAPI(
     title="ReturnKart.in API",
@@ -32,9 +33,10 @@ app.add_middleware(
 )
 
 # API Routes
-app.include_router(health_router, prefix="/api")
-app.include_router(auth_router,   prefix="/api/auth",   tags=["auth"])
-app.include_router(orders_router, prefix="/api/orders", tags=["orders"])
+app.include_router(health_router,   prefix="/api")
+app.include_router(auth_router,     prefix="/api/auth",      tags=["auth"])
+app.include_router(orders_router,   prefix="/api/orders",    tags=["orders"])
+app.include_router(whatsapp_router, prefix="/api/whatsapp",  tags=["whatsapp"])
 
 # Serve React frontend from /frontend/dist
 DIST = Path(__file__).parent.parent / "frontend" / "dist"
