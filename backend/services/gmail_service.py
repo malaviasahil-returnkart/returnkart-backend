@@ -10,6 +10,10 @@ Flow:
   5. Save extracted orders to Supabase (upsert — no duplicates)
 
 This is the ORCHESTRATOR — it calls gemini_service and supabase_service.
+
+DATE FIX: order_date now uses date_utils.resolve_order_date() which
+prioritises Gemini's extracted date, then the email's Date: header,
+never silently defaulting to today.
 """
 import base64
 from datetime import datetime, timezone, timedelta
@@ -25,6 +29,7 @@ from backend.services.supabase_service import (
     save_gmail_token,
     upsert_order,
 )
+from backend.services.date_utils import parse_email_header_date, resolve_order_date
 from backend.models.order import OrderCreate
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -77,9 +82,8 @@ def _decode_email_body(payload: dict) -> str:
                 body = base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="ignore")
                 break
             elif part.get("mimeType") == "text/html" and part.get("body", {}).get("data"):
-                # Fallback to HTML if no plain text
                 body = base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="ignore")
-    return body[:8000]  # Trim to avoid Gemini token limits
+    return body[:8000]
 
 
 def _get_header(headers: list, name: str) -> str:
@@ -95,7 +99,6 @@ async def sync_gmail_orders(user_id: str, max_emails: int = 50) -> dict:
     Main sync function. Called when user triggers 'Sync Gmail' in the app.
     Returns a summary: { synced: N, new_orders: N, errors: N }
     """
-    # Lazy import to avoid circular dependency
     from backend.services.gemini_service import extract_order_from_email
 
     token_row = await get_gmail_token(user_id)
@@ -129,14 +132,15 @@ async def sync_gmail_orders(user_id: str, max_emails: int = 50) -> dict:
                     )
 
                     headers = msg.get("payload", {}).get("headers", [])
-                    subject = _get_header(headers, "subject")
-                    sender  = _get_header(headers, "from")
+                    subject  = _get_header(headers, "subject")
+                    sender   = _get_header(headers, "from")
                     date_str = _get_header(headers, "date")
-                    body = _decode_email_body(msg.get("payload", {}))
+                    body     = _decode_email_body(msg.get("payload", {}))
+
+                    # Parse email header date as reliable fallback
+                    email_received_date = parse_email_header_date(date_str)
 
                     email_text = f"Subject: {subject}\nFrom: {sender}\nDate: {date_str}\n\n{body}"
-
-                    # Ask Gemini to extract order data
                     extracted = await extract_order_from_email(email_text, platform)
 
                     if extracted and extracted.order_id:
@@ -146,13 +150,18 @@ async def sync_gmail_orders(user_id: str, max_emails: int = 50) -> dict:
                             brand=extracted.brand or platform.title(),
                             item_name=extracted.item_name or "Unknown item",
                             price=extracted.total_amount or 0.0,
-                            order_date=datetime.strptime(extracted.order_date, "%Y-%m-%d").date()
-                                if extracted.order_date else datetime.now(IST).date(),
+                            # FIX: use email header date as fallback, never silently today
+                            order_date=resolve_order_date(
+                                gemini_date=extracted.order_date,
+                                fallback_date=email_received_date,
+                                context=f"{platform} {extracted.order_id}",
+                            ),
                             category=extracted.category,
                             courier_partner=extracted.courier_partner,
                             delivery_pincode=extracted.delivery_pincode,
                             purpose_id="return_tracking",
                             consent_timestamp=datetime.now(IST),
+                            source="gmail",
                         )
                         await upsert_order(order)
                         new_orders += 1

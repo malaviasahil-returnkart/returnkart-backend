@@ -6,11 +6,10 @@ using READ_SMS permission.
 
 Two scan modes:
   1. BULK SCAN  — on first connect, scan last N days of inbox
-  2. LIVE SCAN  — on each new SMS received (optional, if app uses
-                  a BroadcastReceiver for incoming SMS_RECEIVED)
+  2. LIVE SCAN  — on each new SMS received (BroadcastReceiver)
 
-Both call POST /api/sms/ingest with a list of messages.
-Gemini extracts order data. Supabase upserts (no duplicates).
+DATE FIX: uses date_utils.resolve_order_date() with the Android
+timestamp as fallback — never silently defaults to today.
 
 iOS: not possible via app. iOS users should forward order SMS
 to ReturnKart's WhatsApp Business number instead.
@@ -25,38 +24,23 @@ import google.generativeai as genai
 from backend.config import GEMINI_API_KEY
 from backend.models.order import OrderCreate
 from backend.services.supabase_service import upsert_order
+from backend.services.date_utils import parse_epoch_ms, resolve_order_date
 
 genai.configure(api_key=GEMINI_API_KEY)
 _model = genai.GenerativeModel("gemini-1.5-flash")
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# ─────────────────────────────────────────────────────────────
-# SENDER FILTER
-# Indian ecommerce platforms send SMS from short alphanumeric
-# sender IDs (not phone numbers). Filter these before Gemini.
-# ─────────────────────────────────────────────────────────────
-
 ECOMMERCE_SENDER_IDS = {
-    # Amazon India
     "AMAZON", "AMZNIN", "AMAZIN", "AZ-AMAZON",
-    # Flipkart
     "FLPKRT", "FLIPKRT", "FK-INFO", "FKINFO",
-    # Myntra
     "MYNTRA", "MN-MYNT",
-    # Meesho
     "MEESHO", "ME-MESO",
-    # Ajio
     "AJIO", "AJ-AJIO",
-    # Nykaa
     "NYKAA", "NY-NYKA",
-    # JioMart
     "JIOMART", "JM-MART",
-    # Tata CLiQ / Croma
     "TACLIQ", "CROMA",
-    # Snapdeal
     "SNAPDL", "SNPDEL",
-    # Delivery partners (also carry order info)
     "DELHVR", "BLUDRM", "DTDC", "ECOMEX",
     "EKART", "XPRSBS", "SHADOW", "DELHVY",
 }
@@ -65,42 +49,22 @@ ECOMMERCE_KEYWORDS = [
     "order", "delivered", "dispatch", "shipment", "return",
     "refund", "out for delivery", "expected delivery",
     "return window", "exchange", "replacement", "courier",
-    "track", "ofd",  # OFD = Out For Delivery
+    "track", "ofd",
 ]
 
 
 def is_ecommerce_sms(sender: str, text: str) -> bool:
-    """
-    Returns True if this SMS looks like an ecommerce order message.
-    Prevents OTPs, bank alerts, and promos from hitting Gemini.
-    """
     sender_upper = sender.upper().strip()
-
-    # Direct sender ID match
     if sender_upper in ECOMMERCE_SENDER_IDS:
         return True
-
-    # Partial match (e.g. "VK-AMAZON" contains "AMAZON")
     if any(brand in sender_upper for brand in ECOMMERCE_SENDER_IDS):
         return True
-
-    # Keyword scan on message text (need at least 2 hits)
     text_lower = text.lower()
     hits = sum(1 for kw in ECOMMERCE_KEYWORDS if kw in text_lower)
     return hits >= 2
 
 
-# ─────────────────────────────────────────────────────────────
-# GEMINI PROMPT
-# ─────────────────────────────────────────────────────────────
-
 def _build_sms_prompt(sms_text: str, sender: str) -> str:
-    """
-    SMS messages are very short (1-3 lines), use abbreviations,
-    and often omit product names entirely.
-    The most important fields are: order_id, brand, message_type,
-    delivery_date, return_deadline.
-    """
     return f"""You are an AI assistant for ReturnKart.in, an Indian e-commerce return tracker.
 
 Extract order information from the SMS message below.
@@ -128,7 +92,7 @@ Extract this JSON structure:
 
 Rules:
 - Infer brand from sender ID if not in message text (e.g. FLPKRT = Flipkart)
-- Dates MUST be YYYY-MM-DD. If "Jan 15" with no year, use current year.
+- Dates MUST be YYYY-MM-DD format
 - total_amount is a number only, no rupee symbol
 - message_type is critical — always determine it
 - confidence: 0.9 if order_id found, 0.6 if only brand+type, 0.3 if very uncertain
@@ -140,22 +104,23 @@ SMS:
 JSON:"""
 
 
-# ─────────────────────────────────────────────────────────────
-# CORE EXTRACTION
-# ─────────────────────────────────────────────────────────────
-
 async def extract_order_from_sms(
     sms_text: str,
     sender: str,
     user_id: str,
-    received_at: Optional[str] = None,  # ISO timestamp from Android
+    received_at: Optional[str] = None,
+    received_at_epoch_ms: Optional[int] = None,
 ) -> Optional[dict]:
-    """
-    Run Gemini extraction on a single SMS and upsert to Supabase.
-    Returns the saved order dict or None if extraction failed / low confidence.
-    """
     if not sms_text or not sms_text.strip():
         return None
+
+    # Parse the SMS timestamp as date fallback
+    sms_received_date = parse_epoch_ms(received_at_epoch_ms)
+    if not sms_received_date and received_at:
+        try:
+            sms_received_date = datetime.fromisoformat(received_at).date()
+        except Exception:
+            pass
 
     try:
         prompt = _build_sms_prompt(sms_text, sender)
@@ -176,26 +141,24 @@ async def extract_order_from_sms(
             print(f"[SMS] Low confidence ({data.get('confidence')}) for sender={sender} — skipping")
             return None
 
-        # Only save messages that indicate an order event worth tracking
         trackable_types = {
             "order_placed", "shipped", "out_for_delivery",
             "delivered", "return_reminder", "refund_processed",
         }
-        msg_type = data.get("message_type", "other")
-        if msg_type not in trackable_types:
-            print(f"[SMS] Non-trackable message type '{msg_type}' — skipping")
+        if data.get("message_type", "other") not in trackable_types:
             return None
 
-        # Build OrderCreate — reuse existing Supabase upsert
         order = OrderCreate(
             user_id=user_id,
             order_id=data.get("order_id") or f"sms_{sender}_{hash(sms_text) % 10**8}",
             brand=data.get("brand") or sender,
             item_name=data.get("item_name") or "Unknown item",
             price=data.get("total_amount") or 0.0,
-            order_date=(
-                datetime.strptime(data["order_date"], "%Y-%m-%d").date()
-                if data.get("order_date") else datetime.now(IST).date()
+            # FIX: use SMS timestamp as fallback, never silently today
+            order_date=resolve_order_date(
+                gemini_date=data.get("order_date"),
+                fallback_date=sms_received_date,
+                context=f"sms {sender}",
             ),
             category=data.get("category") or "Default",
             courier_partner=data.get("courier_partner"),
@@ -215,26 +178,17 @@ async def extract_order_from_sms(
         return None
 
 
-async def process_sms_batch(
-    messages: list[dict],
-    user_id: str,
-) -> dict:
-    """
-    Process a batch of SMS messages from the Android app.
-    Each message dict: { sender, text, received_at (optional) }
-    Returns a summary: { total, filtered, extracted, errors }
-    """
+async def process_sms_batch(messages: list[dict], user_id: str) -> dict:
     total = len(messages)
     filtered = 0
     extracted = 0
     errors = 0
 
     for msg in messages:
-        sender = msg.get("sender", "UNKNOWN")
-        text = msg.get("text", "")
+        sender   = msg.get("sender", "UNKNOWN")
+        text     = msg.get("text", "")
         received_at = msg.get("received_at")
 
-        # Filter noise before spending Gemini quota
         if not is_ecommerce_sms(sender, text):
             filtered += 1
             continue
