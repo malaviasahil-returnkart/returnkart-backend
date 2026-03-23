@@ -69,6 +69,78 @@ async def delete_gmail_token(user_id: str) -> None:
 
 
 # ─────────────────────────────────────────────
+# EMAIL TOKENS (Yahoo, Outlook, Rediff, iCloud…)
+# ─────────────────────────────────────────────
+
+async def save_email_token(
+    user_id: str,
+    provider: str,
+    access_token: str,
+    refresh_token: Optional[str],
+    token_expiry: Optional[datetime],
+    email_address: str,
+    imap_host: Optional[str] = None,
+    provider_label: Optional[str] = None,
+) -> dict:
+    """
+    Upsert email credentials for any non-Gmail provider.
+    For IMAP providers, access_token stores the app password.
+    For OAuth providers (Outlook), access_token is an OAuth token.
+    UNIQUE(user_id, provider) — one account per provider per user.
+    """
+    client = get_client()
+    data = {
+        "user_id": user_id,
+        "provider": provider,
+        "provider_label": provider_label or provider.title(),
+        "email_address": email_address,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_expiry": token_expiry.isoformat() if token_expiry else None,
+        "imap_host": imap_host,
+        "updated_at": datetime.now(IST).isoformat(),
+    }
+    result = (
+        client.table("email_tokens")
+        .upsert(data, on_conflict="user_id,provider")
+        .execute()
+    )
+    return result.data[0] if result.data else {}
+
+
+async def get_email_token(user_id: str, provider: str) -> Optional[dict]:
+    """Get stored token/credentials for a specific provider."""
+    client = get_client()
+    result = (
+        client.table("email_tokens")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("provider", provider)
+        .limit(1)
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+async def get_all_email_tokens(user_id: str) -> list:
+    """Get all connected email providers for a user. Used by Settings Vault."""
+    client = get_client()
+    result = (
+        client.table("email_tokens")
+        .select("provider, provider_label, email_address, last_synced_at")
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return result.data or []
+
+
+async def delete_email_token(user_id: str, provider: str) -> None:
+    """Remove credentials for a provider — DPDP data deletion compliance."""
+    client = get_client()
+    client.table("email_tokens").delete().eq("user_id", user_id).eq("provider", provider).execute()
+
+
+# ─────────────────────────────────────────────
 # ORDERS
 # ─────────────────────────────────────────────
 
