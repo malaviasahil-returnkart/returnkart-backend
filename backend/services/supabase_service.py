@@ -1,9 +1,11 @@
 """
 RETURNKART.IN — SUPABASE SERVICE
-Task #15: Central DB layer. All Supabase reads/writes go through here.
-No other file should import supabase directly.
+Central DB layer. All Supabase reads/writes go through here.
 
-Rule: one function per DB operation. Never write raw queries outside this file.
+PERFORMANCE:
+  - Client is cached at module level (one connection, not one per call)
+  - bulk_upsert_orders() inserts all orders in a single DB round trip
+  - get_existing_order_ids() lets callers skip AI on already-known orders
 """
 from datetime import datetime, date, timezone, timedelta
 from typing import Optional
@@ -14,10 +16,14 @@ from backend.models.order import OrderCreate
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
+# ── Cached client — created once, reused forever ─────────────────────────
+_client: Optional[Client] = None
 
 def get_client() -> Client:
-    """Get a Supabase client using the service key (admin access)."""
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    global _client
+    if _client is None:
+        _client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    return _client
 
 
 # ─────────────────────────────────────────────
@@ -31,7 +37,6 @@ async def save_gmail_token(
     token_expiry: Optional[datetime],
     scope: str,
 ) -> dict:
-    """Upsert Gmail OAuth tokens for a user."""
     client = get_client()
     data = {
         "user_id": user_id,
@@ -41,16 +46,11 @@ async def save_gmail_token(
         "scope": scope,
         "updated_at": datetime.now(IST).isoformat(),
     }
-    result = (
-        client.table("gmail_tokens")
-        .upsert(data, on_conflict="user_id")
-        .execute()
-    )
+    result = client.table("gmail_tokens").upsert(data, on_conflict="user_id").execute()
     return result.data[0] if result.data else {}
 
 
 async def get_gmail_token(user_id: str) -> Optional[dict]:
-    """Retrieve Gmail token for a user. Returns None if not connected."""
     client = get_client()
     result = (
         client.table("gmail_tokens")
@@ -63,9 +63,7 @@ async def get_gmail_token(user_id: str) -> Optional[dict]:
 
 
 async def delete_gmail_token(user_id: str) -> None:
-    """Delete Gmail token — used when user revokes access."""
-    client = get_client()
-    client.table("gmail_tokens").delete().eq("user_id", user_id).execute()
+    get_client().table("gmail_tokens").delete().eq("user_id", user_id).execute()
 
 
 # ─────────────────────────────────────────────
@@ -82,12 +80,6 @@ async def save_email_token(
     imap_host: Optional[str] = None,
     provider_label: Optional[str] = None,
 ) -> dict:
-    """
-    Upsert email credentials for any non-Gmail provider.
-    For IMAP providers, access_token stores the app password.
-    For OAuth providers (Outlook), access_token is an OAuth token.
-    UNIQUE(user_id, provider) — one account per provider per user.
-    """
     client = get_client()
     data = {
         "user_id": user_id,
@@ -109,10 +101,8 @@ async def save_email_token(
 
 
 async def get_email_token(user_id: str, provider: str) -> Optional[dict]:
-    """Get stored token/credentials for a specific provider."""
-    client = get_client()
     result = (
-        client.table("email_tokens")
+        get_client().table("email_tokens")
         .select("*")
         .eq("user_id", user_id)
         .eq("provider", provider)
@@ -123,10 +113,8 @@ async def get_email_token(user_id: str, provider: str) -> Optional[dict]:
 
 
 async def get_all_email_tokens(user_id: str) -> list:
-    """Get all connected email providers for a user. Used by Settings Vault."""
-    client = get_client()
     result = (
-        client.table("email_tokens")
+        get_client().table("email_tokens")
         .select("provider, provider_label, email_address, last_synced_at")
         .eq("user_id", user_id)
         .execute()
@@ -135,36 +123,66 @@ async def get_all_email_tokens(user_id: str) -> list:
 
 
 async def delete_email_token(user_id: str, provider: str) -> None:
-    """Remove credentials for a provider — DPDP data deletion compliance."""
-    client = get_client()
-    client.table("email_tokens").delete().eq("user_id", user_id).eq("provider", provider).execute()
+    get_client().table("email_tokens").delete().eq("user_id", user_id).eq("provider", provider).execute()
 
 
 # ─────────────────────────────────────────────
 # ORDERS
 # ─────────────────────────────────────────────
 
-async def upsert_order(order: OrderCreate) -> dict:
-    """
-    Insert or update an order.
-    UNIQUE(user_id, order_id) prevents duplicates automatically.
-    """
-    client = get_client()
+def _order_to_dict(order: OrderCreate) -> dict:
+    """Convert an OrderCreate to a Supabase-safe dict."""
     data = order.model_dump()
-    # Convert date objects to ISO strings for Supabase
     for key, val in data.items():
         if isinstance(val, (date, datetime)):
             data[key] = val.isoformat()
+    return data
+
+
+async def upsert_order(order: OrderCreate) -> dict:
+    """Single order upsert. Prefer bulk_upsert_orders() for batches."""
+    client = get_client()
     result = (
         client.table("orders")
-        .upsert(data, on_conflict="user_id,order_id")
+        .upsert(_order_to_dict(order), on_conflict="user_id,order_id")
         .execute()
     )
     return result.data[0] if result.data else {}
 
 
+async def bulk_upsert_orders(orders: list[OrderCreate]) -> int:
+    """
+    Insert/update a batch of orders in ONE Supabase round trip.
+    Returns the number of rows upserted.
+    This is the key performance win — replaces N individual upserts.
+    """
+    if not orders:
+        return 0
+    client = get_client()
+    rows = [_order_to_dict(o) for o in orders]
+    result = (
+        client.table("orders")
+        .upsert(rows, on_conflict="user_id,order_id")
+        .execute()
+    )
+    return len(result.data) if result.data else 0
+
+
+async def get_existing_order_ids(user_id: str) -> set[str]:
+    """
+    Return the set of order_ids already stored for this user.
+    Used to skip Gemini extraction on emails we've already processed.
+    """
+    result = (
+        get_client().table("orders")
+        .select("order_id")
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return {row["order_id"] for row in (result.data or [])}
+
+
 async def get_orders_by_user(user_id: str, status: Optional[str] = None) -> list:
-    """Get all orders for a user, optionally filtered by status."""
     client = get_client()
     query = (
         client.table("orders")
@@ -174,30 +192,25 @@ async def get_orders_by_user(user_id: str, status: Optional[str] = None) -> list
     )
     if status:
         query = query.eq("status", status)
-    result = query.execute()
-    return result.data or []
+    return query.execute().data or []
 
 
 async def update_order_status(order_id: str, user_id: str, status: str) -> dict:
-    """Update order status (kept / returned / expired)."""
-    client = get_client()
     result = (
-        client.table("orders")
+        get_client().table("orders")
         .update({"status": status})
         .eq("id", order_id)
-        .eq("user_id", user_id)  # RLS double-check
+        .eq("user_id", user_id)
         .execute()
     )
     return result.data[0] if result.data else {}
 
 
 async def get_expiring_soon(user_id: str, days: int = 3) -> list:
-    """Get orders whose return deadline is within N days. Used for urgent alerts."""
-    client = get_client()
-    today = date.today()
+    today  = date.today()
     cutoff = date.today().replace(day=today.day + days)
     result = (
-        client.table("orders")
+        get_client().table("orders")
         .select("*")
         .eq("user_id", user_id)
         .eq("status", "active")
@@ -220,8 +233,6 @@ async def log_consent(
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None,
 ) -> dict:
-    """Write an immutable consent event to the audit log."""
-    client = get_client()
     data = {
         "user_id": user_id,
         "purpose_id": purpose_id,
@@ -230,5 +241,5 @@ async def log_consent(
         "ip_address": ip_address,
         "user_agent": user_agent,
     }
-    result = client.table("user_consents").insert(data).execute()
+    result = get_client().table("user_consents").insert(data).execute()
     return result.data[0] if result.data else {}
