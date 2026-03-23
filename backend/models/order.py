@@ -41,6 +41,7 @@ class OrderBase(BaseModel):
     delivery_pincode: Optional[str] = None
     is_replacement_only: bool = False
     status: Literal["active", "kept", "returned", "expired"] = "active"
+    source: Optional[str] = None  # 'gmail' | 'sms' | 'whatsapp_notification' | 'whatsapp_business_api' | 'yahoo' | 'outlook' etc.
 
 
 class OrderCreate(OrderBase, DPDPFields):
