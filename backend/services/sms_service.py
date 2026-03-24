@@ -1,6 +1,8 @@
 """
 RETURNKART.IN — SMS EXTRACTION SERVICE
 
+Uses Gemini via REST API (no SDK) — no Python 3.10 import issues.
+
 Called by the ReturnKart Android app after it reads SMS messages
 using READ_SMS permission.
 
@@ -8,26 +10,19 @@ Two scan modes:
   1. BULK SCAN  — on first connect, scan last N days of inbox
   2. LIVE SCAN  — on each new SMS received (BroadcastReceiver)
 
-DATE FIX: uses date_utils.resolve_order_date() with the Android
-timestamp as fallback — never silently defaults to today.
-
-iOS: not possible via app. iOS users should forward order SMS
-to ReturnKart's WhatsApp Business number instead.
+iOS: not possible. iOS users forward order SMS to ReturnKart's
+WhatsApp Business number instead.
 """
 import json
 import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-import google.generativeai as genai
-
 from backend.config import GEMINI_API_KEY
 from backend.models.order import OrderCreate
 from backend.services.supabase_service import upsert_order
 from backend.services.date_utils import parse_epoch_ms, resolve_order_date
-
-genai.configure(api_key=GEMINI_API_KEY)
-_model = genai.GenerativeModel("gemini-1.5-flash")
+from backend.services.gemini_service import call_gemini
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -60,8 +55,7 @@ def is_ecommerce_sms(sender: str, text: str) -> bool:
     if any(brand in sender_upper for brand in ECOMMERCE_SENDER_IDS):
         return True
     text_lower = text.lower()
-    hits = sum(1 for kw in ECOMMERCE_KEYWORDS if kw in text_lower)
-    return hits >= 2
+    return sum(1 for kw in ECOMMERCE_KEYWORDS if kw in text_lower) >= 2
 
 
 def _build_sms_prompt(sms_text: str, sender: str) -> str:
@@ -91,11 +85,9 @@ Extract this JSON structure:
 }}
 
 Rules:
-- Infer brand from sender ID if not in message text (e.g. FLPKRT = Flipkart)
-- Dates MUST be YYYY-MM-DD format
+- Infer brand from sender ID if not in message (e.g. FLPKRT = Flipkart)
+- Dates MUST be YYYY-MM-DD
 - total_amount is a number only, no rupee symbol
-- message_type is critical — always determine it
-- confidence: 0.9 if order_id found, 0.6 if only brand+type, 0.3 if very uncertain
 - NEVER invent data. null is better than a guess.
 
 SMS:
@@ -114,7 +106,6 @@ async def extract_order_from_sms(
     if not sms_text or not sms_text.strip():
         return None
 
-    # Parse the SMS timestamp as date fallback
     sms_received_date = parse_epoch_ms(received_at_epoch_ms)
     if not sms_received_date and received_at:
         try:
@@ -124,28 +115,19 @@ async def extract_order_from_sms(
 
     try:
         prompt = _build_sms_prompt(sms_text, sender)
-        response = _model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
-                temperature=0.1,
-                max_output_tokens=512,
-            ),
-        )
-        raw = response.text.strip()
+        raw = await call_gemini(prompt)
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
-
         data = json.loads(raw)
 
         if data.get("confidence", 0) < 0.3:
-            print(f"[SMS] Low confidence ({data.get('confidence')}) for sender={sender} — skipping")
             return None
 
-        trackable_types = {
+        trackable = {
             "order_placed", "shipped", "out_for_delivery",
             "delivered", "return_reminder", "refund_processed",
         }
-        if data.get("message_type", "other") not in trackable_types:
+        if data.get("message_type", "other") not in trackable:
             return None
 
         order = OrderCreate(
@@ -154,7 +136,6 @@ async def extract_order_from_sms(
             brand=data.get("brand") or sender,
             item_name=data.get("item_name") or "Unknown item",
             price=data.get("total_amount") or 0.0,
-            # FIX: use SMS timestamp as fallback, never silently today
             order_date=resolve_order_date(
                 gemini_date=data.get("order_date"),
                 fallback_date=sms_received_date,
@@ -162,16 +143,14 @@ async def extract_order_from_sms(
             ),
             category=data.get("category") or "Default",
             courier_partner=data.get("courier_partner"),
-            delivery_pincode=None,
             purpose_id="return_tracking",
             consent_timestamp=datetime.now(IST),
             source="sms",
         )
-        saved = await upsert_order(order)
-        return saved
+        return await upsert_order(order)
 
     except json.JSONDecodeError as e:
-        print(f"[SMS] Gemini JSON parse error: {e}")
+        print(f"[SMS] JSON parse error: {e}")
         return None
     except Exception as e:
         print(f"[SMS] Extraction error: {e}")
@@ -180,25 +159,20 @@ async def extract_order_from_sms(
 
 async def process_sms_batch(messages: list[dict], user_id: str) -> dict:
     total = len(messages)
-    filtered = 0
-    extracted = 0
-    errors = 0
+    filtered = extracted = errors = 0
 
     for msg in messages:
-        sender   = msg.get("sender", "UNKNOWN")
-        text     = msg.get("text", "")
+        sender = msg.get("sender", "UNKNOWN")
+        text = msg.get("text", "")
         received_at = msg.get("received_at")
 
         if not is_ecommerce_sms(sender, text):
             filtered += 1
             continue
-
         try:
             result = await extract_order_from_sms(
-                sms_text=text,
-                sender=sender,
-                user_id=user_id,
-                received_at=received_at,
+                sms_text=text, sender=sender,
+                user_id=user_id, received_at=received_at,
             )
             if result:
                 extracted += 1

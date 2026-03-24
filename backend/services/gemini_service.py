@@ -1,27 +1,29 @@
 """
 RETURNKART.IN — GEMINI AI SERVICE
-Task #14: Extract structured order data from invoice emails using Gemini 1.5 Flash + RAG.
 
-PERFORMANCE: generate_content() is a synchronous blocking call.
-We wrap it in asyncio.to_thread() so callers can await it and
-run multiple extractions in parallel via asyncio.gather().
+Calls Gemini 1.5 Flash via REST API using httpx.
+No google-generativeai SDK — eliminates Python 3.10 import crash permanently.
 
-Input:  raw email text + platform hint
+REST endpoint:
+  POST https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=API_KEY
+
+Input:  raw email/SMS/WhatsApp text + platform hint
 Output: AIOrderContext (order_id, brand, item_name, price, date, category)
 """
-import asyncio
 import json
 import re
 from pathlib import Path
 from typing import Optional
 
-import google.generativeai as genai
+import httpx
 
 from backend.config import GEMINI_API_KEY
 from backend.models.order import AIOrderContext
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+GEMINI_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models"
+    "/gemini-1.5-flash:generateContent"
+)
 
 _KB_PATH = Path(__file__).parent.parent / "data" / "knowledge_base.json"
 _knowledge_base: Optional[dict] = None
@@ -86,16 +88,36 @@ Email:
 JSON:"""
 
 
-def _run_gemini_sync(prompt: str) -> str:
-    """Pure sync call — only ever called via asyncio.to_thread."""
-    response = model.generate_content(
-        prompt,
-        generation_config=genai.GenerationConfig(
-            temperature=0.1,
-            max_output_tokens=512,
-        ),
-    )
-    return response.text.strip()
+async def _call_gemini_api(prompt: str) -> str:
+    """
+    Async REST call to Gemini 1.5 Flash.
+    Returns the raw text response.
+    httpx is already async — no thread pool needed.
+    """
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 512,
+        },
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            GEMINI_URL,
+            params={"key": GEMINI_API_KEY},
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+
+async def call_gemini(prompt: str) -> str:
+    """
+    Public helper — call Gemini with any prompt, get raw text back.
+    Used by whatsapp_service and sms_service.
+    """
+    return await _call_gemini_api(prompt)
 
 
 async def extract_order_from_email(
@@ -103,15 +125,13 @@ async def extract_order_from_email(
     platform_slug: str = "amazon",
 ) -> Optional[AIOrderContext]:
     """
-    Async extraction — safe to call with asyncio.gather() for parallelism.
-    Runs the blocking Gemini SDK call in a thread pool.
+    Extract structured order data from an email.
+    Safe to call with asyncio.gather() for parallelism.
     """
     try:
         policy_snippet = _get_platform_policy(platform_slug)
         prompt = _build_prompt(email_text, platform_slug, policy_snippet)
-
-        # Run blocking Gemini call in thread pool — doesn't block the event loop
-        raw = await asyncio.to_thread(_run_gemini_sync, prompt)
+        raw = await _call_gemini_api(prompt)
 
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
@@ -120,8 +140,8 @@ async def extract_order_from_email(
         return AIOrderContext(**data)
 
     except json.JSONDecodeError as e:
-        print(f"Gemini JSON parse error: {e}")
+        print(f"[Gemini] JSON parse error: {e}")
         return None
     except Exception as e:
-        print(f"Gemini extraction error: {e}")
+        print(f"[Gemini] Extraction error: {e}")
         return None

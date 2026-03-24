@@ -1,9 +1,11 @@
 """
 RETURNKART.IN — WHATSAPP EXTRACTION SERVICE
 
+Uses Gemini via REST API (no SDK) — no Python 3.10 import issues.
+
 Two ingestion channels:
-  1. Android NotificationListenerService  → short notification text
-  2. Meta WhatsApp Business API webhook   → forwarded message text (iOS + Android)
+  1. Android NotificationListenerService -> short notification text
+  2. Meta WhatsApp Business API webhook  -> forwarded message text (iOS + Android)
 
 Both call extract_order_from_whatsapp() which runs Gemini extraction
 then upserts to Supabase — identical pipeline to gmail_service.
@@ -12,51 +14,31 @@ import json
 import re
 from typing import Optional
 
-import google.generativeai as genai
-
 from backend.config import GEMINI_API_KEY
-from backend.models.order import AIOrderContext
+from backend.models.order import OrderCreate
 from backend.services.supabase_service import upsert_order
+from backend.services.gemini_service import call_gemini
 
-genai.configure(api_key=GEMINI_API_KEY)
-_model = genai.GenerativeModel("gemini-1.5-flash")
+from datetime import datetime, timezone, timedelta
+IST = timezone(timedelta(hours=5, minutes=30))
 
-# Known ecommerce WhatsApp sender names / number patterns
-# Used to filter noise from the notification stream
 ECOMMERCE_SENDERS = {
-    "amazon",
-    "amazon india",
-    "flipkart",
-    "myntra",
-    "meesho",
-    "ajio",
-    "nykaa",
-    "snapdeal",
-    "tata cliq",
-    "jiomart",
+    "amazon", "amazon india", "flipkart", "myntra",
+    "meesho", "ajio", "nykaa", "snapdeal", "tata cliq", "jiomart",
 }
 
-# WhatsApp Business numbers used by Indian ecommerce platforms (known)
-# Add more as discovered
 KNOWN_ECOMMERCE_WABIZ_NUMBERS = {
-    "+918069067777",   # Amazon India
-    "+918010100999",   # Flipkart (example — verify)
+    "+918069067777",
+    "+918010100999",
 }
 
 
 def is_ecommerce_notification(sender: str, text: str) -> bool:
-    """
-    Heuristic filter — returns True if this notification looks like
-    an ecommerce order/delivery/return message.
-    Prevents noise (OTPs, promo chats) from hitting Gemini.
-    """
     sender_lower = sender.lower().strip()
     if any(brand in sender_lower for brand in ECOMMERCE_SENDERS):
         return True
     if sender in KNOWN_ECOMMERCE_WABIZ_NUMBERS:
         return True
-
-    # Keyword scan on text as fallback
     keywords = [
         "order", "delivered", "return", "refund", "shipment",
         "dispatch", "out for delivery", "expected delivery",
@@ -67,11 +49,6 @@ def is_ecommerce_notification(sender: str, text: str) -> bool:
 
 
 def _build_whatsapp_prompt(message_text: str) -> str:
-    """
-    Gemini prompt tuned for WhatsApp messages.
-    WhatsApp notifications are SHORT (1-3 lines), informal, often
-    mix Hindi/English — very different from full email invoices.
-    """
     return f"""You are an AI assistant for ReturnKart.in, an Indian e-commerce return tracker.
 
 Extract order information from the WhatsApp message below.
@@ -94,10 +71,9 @@ Extract this JSON structure:
 }}
 
 Rules:
-- Dates MUST be YYYY-MM-DD format. If only "return by Jan 15" → infer year as current year.
-- total_amount is a number, no rupee symbol
-- message_type is the most important field — always try to determine it
-- confidence: 0.9+ if order_id found, 0.5 if only brand + message_type found
+- Dates MUST be YYYY-MM-DD format
+- total_amount is a number only, no rupee symbol
+- confidence: 0.9+ if order_id found, 0.5 if only brand+message_type found
 - NEVER invent data. null is better than a guess.
 
 WhatsApp message:
@@ -110,48 +86,43 @@ async def extract_order_from_whatsapp(
     message_text: str,
     user_id: str,
     sender: str = "unknown",
-    source_channel: str = "whatsapp_notification",  # or "whatsapp_business_api"
+    source_channel: str = "whatsapp_notification",
 ) -> Optional[dict]:
-    """
-    Core extraction pipeline.
-    1. Run Gemini on the message text
-    2. Upsert result to Supabase orders table
-    Returns the upserted order dict or None on failure.
-    """
     if not message_text or not message_text.strip():
         return None
-
     try:
         prompt = _build_whatsapp_prompt(message_text)
-        response = _model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
-                temperature=0.1,
-                max_output_tokens=512,
-            ),
-        )
-        raw = response.text.strip()
+        raw = await call_gemini(prompt)
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
-
         data = json.loads(raw)
 
-        # Only save if Gemini found something meaningful
         if data.get("confidence", 0) < 0.3:
-            print(f"[WhatsApp] Low confidence ({data.get('confidence')}) — skipping upsert")
+            print(f"[WhatsApp] Low confidence ({data.get('confidence')}) — skipping")
             return None
 
-        # Merge metadata before upsert
-        data["user_id"] = user_id
-        data["source"] = source_channel
-        data["raw_text"] = message_text[:1000]  # Store snippet for debugging
-        data["sender"] = sender
-
-        order = await upsert_order(data)
-        return order
+        from backend.services.date_utils import resolve_order_date
+        order = OrderCreate(
+            user_id=user_id,
+            order_id=data.get("order_id") or f"wa_{sender}_{hash(message_text) % 10**8}",
+            brand=data.get("brand") or sender,
+            item_name=data.get("item_name") or "Unknown item",
+            price=data.get("total_amount") or 0.0,
+            order_date=resolve_order_date(
+                gemini_date=data.get("order_date"),
+                fallback_date=None,
+                context=f"whatsapp {sender}",
+            ),
+            category=data.get("category") or "Default",
+            purpose_id="return_tracking",
+            consent_timestamp=datetime.now(IST),
+            source=source_channel,
+        )
+        saved = await upsert_order(order)
+        return saved
 
     except json.JSONDecodeError as e:
-        print(f"[WhatsApp] Gemini JSON parse error: {e}")
+        print(f"[WhatsApp] JSON parse error: {e}")
         return None
     except Exception as e:
         print(f"[WhatsApp] Extraction error: {e}")
