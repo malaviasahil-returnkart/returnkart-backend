@@ -18,7 +18,7 @@ Endpoints for connecting and syncing non-Gmail email providers.
     GET  /api/email/status/{user_id}   — list all connected email providers
 """
 from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional
 import uuid
 
@@ -59,15 +59,8 @@ class ImapConnectRequest(BaseModel):
 async def connect_imap(body: ImapConnectRequest):
     """
     POST /api/email/imap/connect
-
     Validates IMAP credentials and saves them to Supabase.
-    Called when user connects Yahoo / Rediff / iCloud / Zoho mail.
-
-    The app_password is stored encrypted-at-rest in Supabase
-    (Supabase encrypts data at rest by default).
-    We never store or log the user's regular email password.
     """
-    # Auto-detect IMAP host if not given
     imap_host = body.imap_host
     if not imap_host:
         provider_slug = _detect_provider(body.email_address)
@@ -75,17 +68,15 @@ async def connect_imap(body: ImapConnectRequest):
         if not config:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unknown email provider. Please provide imap_host manually.",
+                detail="Unknown email provider. Please provide imap_host manually.",
             )
         imap_host = config["imap_host"]
 
-    # Validate credentials before storing
     try:
         validate_imap_credentials(imap_host, body.email_address, body.app_password)
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
 
-    # Detect provider name for display
     provider_slug = _detect_provider(body.email_address)
     provider_label = {
         "yahoo": "Yahoo Mail", "ymail": "Yahoo Mail",
@@ -99,9 +90,9 @@ async def connect_imap(body: ImapConnectRequest):
     await save_email_token(
         user_id=body.user_id,
         provider=provider_slug,
-        access_token=body.app_password,   # For IMAP, access_token stores the app password
+        access_token=body.app_password,
         refresh_token=None,
-        token_expiry=None,                 # App passwords don't expire
+        token_expiry=None,
         email_address=body.email_address,
         imap_host=imap_host,
         provider_label=provider_label,
@@ -116,15 +107,8 @@ async def connect_imap(body: ImapConnectRequest):
 
 
 @router.post("/imap/sync")
-async def sync_imap(
-    request: Request,
-    background_tasks: BackgroundTasks,
-):
-    """
-    POST /api/email/imap/sync
-    Body: { "user_id": "...", "provider": "yahoo" }
-    Triggers IMAP sync in the background.
-    """
+async def sync_imap(request: Request, background_tasks: BackgroundTasks):
+    """POST /api/email/imap/sync — triggers IMAP sync in background."""
     body = await request.json()
     user_id = body.get("user_id")
     provider = body.get("provider")
@@ -148,11 +132,7 @@ async def sync_imap(
 
 @router.delete("/imap/disconnect")
 async def disconnect_imap(request: Request):
-    """
-    DELETE /api/email/imap/disconnect
-    Body: { "user_id": "...", "provider": "yahoo" }
-    Removes stored IMAP credentials. DPDP data deletion compliance.
-    """
+    """DELETE /api/email/imap/disconnect — removes IMAP credentials."""
     body = await request.json()
     user_id = body.get("user_id")
     provider = body.get("provider")
@@ -168,10 +148,7 @@ async def disconnect_imap(request: Request):
 
 @router.get("/outlook/auth")
 async def outlook_auth(user_id: str):
-    """
-    GET /api/email/outlook/auth?user_id=...
-    Returns Microsoft OAuth URL. Frontend redirects user there.
-    """
+    """GET /api/email/outlook/auth?user_id=... — returns Microsoft OAuth URL."""
     state = f"{user_id}::{uuid.uuid4().hex}"
     auth_url = get_auth_url(state=state)
     return {"auth_url": auth_url}
@@ -179,12 +156,7 @@ async def outlook_auth(user_id: str):
 
 @router.get("/outlook/callback")
 async def outlook_callback(code: str, state: str):
-    """
-    GET /api/email/outlook/callback
-    Microsoft redirects here after user approves.
-    Exchanges the code for tokens and stores them.
-    """
-    # State format: "{user_id}::{nonce}"
+    """GET /api/email/outlook/callback — Microsoft redirects here after approval."""
     try:
         user_id = state.split("::")[0]
     except Exception:
@@ -199,8 +171,6 @@ async def outlook_callback(code: str, state: str):
     import datetime as dt
 
     expiry = dt.datetime.now(timezone.utc) + timedelta(seconds=tokens.get("expires_in", 3600))
-
-    # Extract user's email from the ID token claims
     id_token_claims = tokens.get("id_token_claims", {})
     email_address = id_token_claims.get("preferred_username", "")
 
@@ -214,33 +184,24 @@ async def outlook_callback(code: str, state: str):
         provider_label="Outlook / Hotmail",
     )
 
-    # Redirect back to the frontend
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url=f"{FRONTEND_URL}?outlook_connected=true")
 
 
 @router.post("/outlook/sync")
-async def sync_outlook(
-    request: Request,
-    background_tasks: BackgroundTasks,
-):
-    """
-    POST /api/email/outlook/sync
-    Body: { "user_id": "..." }
-    Triggers Outlook sync in the background.
-    """
+async def sync_outlook(request: Request, background_tasks: BackgroundTasks):
+    """POST /api/email/outlook/sync — triggers Outlook sync in background."""
     body = await request.json()
     user_id = body.get("user_id")
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
-
     background_tasks.add_task(sync_outlook_orders, user_id=user_id)
     return {"status": "sync_started", "message": "Outlook sync running in background"}
 
 
 @router.delete("/outlook/disconnect")
 async def disconnect_outlook(request: Request):
-    """DELETE /api/email/outlook/disconnect — remove Outlook token."""
+    """DELETE /api/email/outlook/disconnect — removes Outlook token."""
     body = await request.json()
     user_id = body.get("user_id")
     if not user_id:
@@ -259,8 +220,19 @@ async def email_status(user_id: str):
     GET /api/email/status/{user_id}
     Returns all connected email providers for this user.
     Used by the Settings Vault screen to show which accounts are linked.
+
+    Returns empty list gracefully for:
+    - Users with no connected providers
+    - Invalid or non-UUID user_id values (e.g. during testing)
     """
-    tokens = await get_all_email_tokens(user_id)
+    try:
+        tokens = await get_all_email_tokens(user_id)
+    except Exception as e:
+        # Supabase throws if user_id is not a valid UUID format —
+        # return empty provider list rather than a 500
+        print(f"[email_status] Could not fetch tokens for user_id={user_id}: {e}")
+        tokens = []
+
     providers = [
         {
             "provider": t["provider"],
