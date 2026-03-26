@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api'
 import { formatINR, daysRemaining, urgencyLevel, urgencyColor, formatDate } from '../lib/formatters'
+import BrandLogo from '../lib/BrandLogo'
 
 export default function Dashboard({ userId, onDisconnect }) {
   const [orders, setOrders]       = useState([])
@@ -23,7 +24,7 @@ export default function Dashboard({ userId, onDisconnect }) {
     setSyncing(true)
     try {
       await api.syncGmail(userId)
-      setTimeout(loadOrders, 2000) // give backend time to process
+      setTimeout(loadOrders, 2000)
     } catch(e) {
       console.error(e)
     } finally {
@@ -43,7 +44,6 @@ export default function Dashboard({ userId, onDisconnect }) {
     loadOrders()
   }
 
-  // Total money at risk (active orders expiring within 7 days)
   const moneyAtRisk = orders
     .filter(o => { const d = daysRemaining(o.return_deadline); return d !== null && d >= 0 && d <= 7 })
     .reduce((sum, o) => sum + (o.price || 0), 0)
@@ -158,17 +158,20 @@ function OrderCard({ order, onTap }) {
       className={`w-full bg-vault-card rounded-2xl px-4 py-4 text-left ${cardClass} active:scale-98 transition-transform animate-slide-up`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-vault-border text-vault-muted">
-              {order.brand}
-            </span>
-            {order.is_replacement_only && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-900/40 text-yellow-400">Replace only</span>
-            )}
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          {/* Brand logo */}
+          <BrandLogo brand={order.brand} size={36} className="rounded-xl mt-0.5 flex-shrink-0" />
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-xs font-semibold text-vault-gold truncate">{order.brand}</span>
+              {order.is_replacement_only && (
+                <span className="text-xs px-1.5 py-0.5 rounded-full bg-yellow-900/40 text-yellow-400 flex-shrink-0">Replace</span>
+              )}
+            </div>
+            <p className="text-vault-text font-medium text-sm truncate">{order.item_name}</p>
+            <p className="text-vault-muted text-xs mt-0.5">{formatINR(order.price)} · {formatDate(order.order_date)}</p>
           </div>
-          <p className="text-vault-text font-medium text-sm truncate">{order.item_name}</p>
-          <p className="text-vault-muted text-xs mt-0.5">{formatINR(order.price)} · {formatDate(order.order_date)}</p>
         </div>
 
         {/* Countdown */}
@@ -183,7 +186,6 @@ function OrderCard({ order, onTap }) {
               <span className="text-xs" style={{ color: '#A0A0A0' }}>day{days !== 1 ? 's' : ''} left</span>
             </>
           )}
-          {/* Progress arc */}
           <CountdownArc days={days} color={color} />
         </div>
       </div>
@@ -227,11 +229,14 @@ function OrderSheet({ order, onClose, onKept, onReturned }) {
         {/* Handle */}
         <div className="w-10 h-1 bg-vault-border rounded-full mx-auto -mt-1" />
 
-        {/* Header */}
-        <div>
-          <span className="text-xs font-semibold text-vault-muted px-2 py-0.5 rounded-full bg-vault-border">{order.brand}</span>
-          <h2 className="text-vault-text font-semibold text-base mt-2">{order.item_name}</h2>
-          <p className="text-vault-muted text-sm mt-0.5">Order #{order.order_id}</p>
+        {/* Header with logo */}
+        <div className="flex items-center gap-3">
+          <BrandLogo brand={order.brand} size={48} className="rounded-2xl flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <span className="text-sm font-bold text-vault-gold">{order.brand}</span>
+            <h2 className="text-vault-text font-semibold text-base mt-0.5 truncate">{order.item_name}</h2>
+            <p className="text-vault-muted text-xs">Order #{order.order_id}</p>
+          </div>
         </div>
 
         {/* Stats grid */}
