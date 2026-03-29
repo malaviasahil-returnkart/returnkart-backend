@@ -3,12 +3,47 @@ import { api } from '../lib/api'
 import { formatINR, daysRemaining, urgencyLevel, urgencyColor, formatDate } from '../lib/formatters'
 import BrandLogo from '../lib/BrandLogo'
 
+// ─── Sort options ─────────────────────────────────────────────────────────────
+const SORT_OPTIONS = [
+  { key: 'expiry_asc',   label: 'Expiring Soon' },
+  { key: 'brand',        label: 'Brand'         },
+  { key: 'value_desc',   label: 'Value: High'   },
+  { key: 'value_asc',    label: 'Value: Low'    },
+]
+
+function sortOrders(orders, sortKey) {
+  const arr = [...orders]
+  switch (sortKey) {
+    case 'expiry_asc':
+      return arr.sort((a, b) => {
+        const da = daysRemaining(a.return_deadline)
+        const db = daysRemaining(b.return_deadline)
+        // Active orders first, sorted by days remaining asc
+        if (da === null && db === null) return 0
+        if (da === null) return 1
+        if (db === null) return -1
+        if (da < 0 && db >= 0) return 1
+        if (db < 0 && da >= 0) return -1
+        return da - db
+      })
+    case 'brand':
+      return arr.sort((a, b) => (a.brand || '').localeCompare(b.brand || ''))
+    case 'value_desc':
+      return arr.sort((a, b) => (b.price || 0) - (a.price || 0))
+    case 'value_asc':
+      return arr.sort((a, b) => (a.price || 0) - (b.price || 0))
+    default:
+      return arr
+  }
+}
+
 export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
-  const [orders, setOrders]       = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [syncing, setSyncing]     = useState(false)
-  const [selected, setSelected]   = useState(null)
-  const [tab, setTab]             = useState('active')
+  const [orders, setOrders]     = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [syncing, setSyncing]   = useState(false)
+  const [selected, setSelected] = useState(null)
+  const [tab, setTab]           = useState('active')
+  const [sort, setSort]         = useState('expiry_asc')
 
   const loadOrders = useCallback(() => {
     setLoading(true)
@@ -53,6 +88,11 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
     return d !== null && d >= 0 && d <= 3
   })
 
+  const sortedOrders = sortOrders(orders, sort)
+
+  // For brand sort: group by brand visually with a sticky label
+  const showBrandHeader = sort === 'brand'
+
   return (
     <div className="min-h-screen bg-vault-black flex flex-col">
 
@@ -70,7 +110,6 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
             <span className={syncing ? 'animate-spin inline-block' : ''}>↻</span>
             {syncing ? 'Syncing…' : 'Sync Gmail'}
           </button>
-          {/* Settings — opens Settings page, NOT logout */}
           <button
             onClick={onOpenSettings}
             className="text-vault-muted text-lg px-2 py-1.5 hover:text-vault-gold transition-colors"
@@ -110,13 +149,30 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
         ))}
       </div>
 
+      {/* Sort bar */}
+      <div className="flex gap-1.5 px-4 mt-3 overflow-x-auto pb-1 scrollbar-hide">
+        {SORT_OPTIONS.map(opt => (
+          <button
+            key={opt.key}
+            onClick={() => setSort(opt.key)}
+            className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+              sort === opt.key
+                ? 'bg-vault-gold text-vault-black'
+                : 'bg-vault-border text-vault-muted'
+            }`}
+          >
+            {sort === opt.key && '✓ '}{opt.label}
+          </button>
+        ))}
+      </div>
+
       {/* Orders list */}
       <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3 pb-24">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-7 h-7 border-2 border-vault-gold border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : orders.length === 0 ? (
+        ) : sortedOrders.length === 0 ? (
           <div className="flex flex-col items-center py-16 gap-4 animate-fade-in">
             <span className="text-5xl">📬</span>
             <p className="text-vault-muted text-center text-sm">
@@ -129,11 +185,24 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
             )}
           </div>
         ) : (
-          orders.map(order => <OrderCard key={order.id} order={order} onTap={() => setSelected(order)} />)
+          sortedOrders.map((order, idx) => {
+            const prevOrder = sortedOrders[idx - 1]
+            const showLabel = showBrandHeader && (idx === 0 || prevOrder.brand !== order.brand)
+            return (
+              <div key={order.id}>
+                {showLabel && (
+                  <div className="flex items-center gap-2 mt-2 mb-1">
+                    <BrandLogo brand={order.brand} size={18} className="rounded" />
+                    <p className="text-vault-muted text-xs font-semibold uppercase tracking-wider">{order.brand}</p>
+                  </div>
+                )}
+                <OrderCard order={order} onTap={() => setSelected(order)} />
+              </div>
+            )
+          })
         )}
       </div>
 
-      {/* Order detail bottom sheet */}
       {selected && (
         <OrderSheet
           order={selected}
