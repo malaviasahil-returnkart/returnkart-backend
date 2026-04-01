@@ -14,6 +14,7 @@ from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleRequest
 import json
+import urllib.parse
 
 from backend.config import (
     GOOGLE_CLIENT_ID,
@@ -26,10 +27,12 @@ from backend.services.supabase_service import save_gmail_token, delete_gmail_tok
 router = APIRouter()
 
 # Gmail scopes — read-only, no send/delete permissions
+# Added userinfo.profile for user avatar/name
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
 ]
 
 CLIENT_CONFIG = {
@@ -51,6 +54,22 @@ def build_flow() -> Flow:
         redirect_uri=GOOGLE_REDIRECT_URI,
     )
     return flow
+
+
+def _fetch_google_userinfo(access_token: str) -> dict:
+    """Fetch user profile from Google using the access token."""
+    try:
+        import requests as req
+        resp = req.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        print(f"Failed to fetch Google userinfo: {e}")
+    return {}
 
 
 @router.get("/google")
@@ -80,7 +99,8 @@ async def google_auth_callback(request: Request):
     Step 2: Google redirects back here after user grants permission.
     Exchanges the auth code for access + refresh tokens.
     Saves tokens to gmail_tokens table.
-    Redirects user back to frontend dashboard.
+    Fetches user profile (name, email, picture) from Google.
+    Redirects user back to frontend dashboard with profile data.
     """
     code = request.query_params.get("code")
     state = request.query_params.get("state")  # this is the user_id we passed
@@ -108,7 +128,18 @@ async def google_auth_callback(request: Request):
             scope=" ".join(credentials.scopes) if credentials.scopes else "",
         )
 
-        return RedirectResponse(url=f"{FRONTEND_URL}?gmail=connected")
+        # Fetch Google profile (name, email, picture)
+        profile = _fetch_google_userinfo(credentials.token)
+        profile_params = ""
+        if profile:
+            params = {
+                "user_name": profile.get("name", ""),
+                "user_email": profile.get("email", ""),
+                "user_picture": profile.get("picture", ""),
+            }
+            profile_params = "&" + urllib.parse.urlencode(params)
+
+        return RedirectResponse(url=f"{FRONTEND_URL}?gmail=connected{profile_params}")
 
     except Exception as e:
         print(f"OAuth callback error: {e}")

@@ -5,7 +5,7 @@ import BrandLogo from '../lib/BrandLogo'
 import {
   Package, Undo2, AlertTriangle, Settings, RefreshCw, Mail,
   Check, RotateCcw, ChevronDown, ShieldAlert, Clock, Calendar,
-  Tag, Truck, X, ArrowDownUp, SortAsc
+  Tag, Truck, X, ArrowDownUp, SortAsc, User
 } from 'lucide-react'
 
 // ─── Sort options ─────────────────────────────────────────────────────────────
@@ -72,7 +72,49 @@ function SkeletonTile() {
   )
 }
 
-export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
+// ─── User Avatar ──────────────────────────────────────────────────────────
+function UserAvatar({ profile, size = 28, onClick }) {
+  if (profile?.picture) {
+    return (
+      <button
+        onClick={onClick}
+        aria-label={profile.name || 'User profile'}
+        className="min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
+      >
+        <img
+          src={profile.picture}
+          alt={profile.name || 'User'}
+          width={size}
+          height={size}
+          className="rounded-full ring-2 ring-vault-gold/40 ring-offset-1 ring-offset-vault-black"
+          referrerPolicy="no-referrer"
+        />
+      </button>
+    )
+  }
+
+  // Fallback: first letter of name or generic icon
+  const initial = (profile?.name || profile?.email || '')[0]?.toUpperCase()
+  return (
+    <button
+      onClick={onClick}
+      aria-label="User profile"
+      className="min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
+    >
+      <div
+        className="rounded-full bg-vault-gold/15 ring-2 ring-vault-gold/30 ring-offset-1 ring-offset-vault-black flex items-center justify-center"
+        style={{ width: size, height: size }}
+      >
+        {initial
+          ? <span className="text-vault-gold text-xs font-bold">{initial}</span>
+          : <User size={14} className="text-vault-gold" />
+        }
+      </div>
+    </button>
+  )
+}
+
+export default function Dashboard({ userId, userProfile, onDisconnect, onOpenSettings }) {
   const [orders, setOrders]     = useState([])
   const [loading, setLoading]   = useState(true)
   const [syncing, setSyncing]   = useState(false)
@@ -105,7 +147,6 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
       .finally(() => setSummaryLoading(false))
   }, [userId])
 
-  // ─── Fetch filtered orders for the list ─────────────────────────────────────
   const loadOrders = useCallback(() => {
     setLoading(true)
     const statusFilter = tab === 'all' ? null : tab === 'return' ? 'want_to_return' : tab
@@ -179,7 +220,7 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
         <h1 className="text-vault-gold font-bold text-lg tracking-tight select-none">
           Return<span className="text-vault-text">Kart</span>
         </h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <button
             onClick={handleSync}
             disabled={syncing}
@@ -196,6 +237,7 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
           >
             <Settings size={20} />
           </button>
+          <UserAvatar profile={userProfile} size={28} onClick={onOpenSettings} />
         </div>
       </header>
 
@@ -207,7 +249,6 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 px-4 mt-4 animate-fade-in">
-          {/* Tile 1: Active Tracking */}
           <button
             onClick={() => setTab('active')}
             aria-label={`Active tracking: ${summary.activeCount} orders`}
@@ -228,7 +269,6 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
             <p className="text-vault-muted text-[11px] mt-0.5">open return windows</p>
           </button>
 
-          {/* Tile 2: Want to Return */}
           <button
             onClick={() => setTab('return')}
             aria-label={`Want to return: ${summary.returnCount} orders`}
@@ -468,10 +508,8 @@ function OrderSheet({ order, onClose, onKept, onReturned, onWantToReturn, onUndo
         role="dialog"
         aria-label={`Order details for ${order.item_name}`}
       >
-        {/* Drag handle */}
         <div className="w-10 h-1 bg-vault-border rounded-full mx-auto -mt-1" />
 
-        {/* Close button — accessible */}
         <button
           onClick={onClose}
           aria-label="Close"
@@ -480,7 +518,6 @@ function OrderSheet({ order, onClose, onKept, onReturned, onWantToReturn, onUndo
           <X size={20} />
         </button>
 
-        {/* Header */}
         <div className="flex items-center gap-3 pr-10">
           <BrandLogo brand={order.brand} size={48} className="rounded-2xl flex-shrink-0" />
           <div className="flex-1 min-w-0">
@@ -497,7 +534,6 @@ function OrderSheet({ order, onClose, onKept, onReturned, onWantToReturn, onUndo
           </div>
         </div>
 
-        {/* Detail grid */}
         <div className="grid grid-cols-2 gap-3">
           {[
             { label: 'Order Value', value: formatINR(order.price), highlight: true, icon: Package },
@@ -522,7 +558,6 @@ function OrderSheet({ order, onClose, onKept, onReturned, onWantToReturn, onUndo
           })}
         </div>
 
-        {/* Replacement warning */}
         {order.is_replacement_only && (
           <div className="bg-yellow-900/15 border border-yellow-700/25 rounded-xl px-4 py-3 text-sm text-yellow-400 flex items-start gap-2">
             <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
@@ -530,7 +565,6 @@ function OrderSheet({ order, onClose, onKept, onReturned, onWantToReturn, onUndo
           </div>
         )}
 
-        {/* ─── Action Buttons ─────────────────────────────────────────── */}
         {order.status === 'active' && (
           <div className="flex flex-col gap-3">
             <button
