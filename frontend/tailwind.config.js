@@ -14,15 +14,19 @@ export default {
           muted:  '#A0A0A0',
           urgent: '#FF4444',
           safe:   '#22C55E',
+          blue:   '#60A5FA',
         }
       },
       fontFamily: {
         sans: ['Inter', 'Roboto', 'system-ui', 'sans-serif'],
       },
+      spacing: {
+        '11': '2.75rem',  /* 44px — minimum touch target */
+      },
       animation: {
         'pulse-gold': 'pulse-gold 2s ease-in-out infinite',
-        'fade-in': 'fade-in 0.4s ease-out',
-        'slide-up': 'slide-up 0.4s ease-out',
+        'fade-in': 'fade-in 0.3s ease-out',
+        'slide-up': 'slide-up 0.3s ease-out',
       },
       keyframes: {
         'pulse-gold': {
@@ -34,7 +38,7 @@ export default {
           to: { opacity: '1' },
         },
         'slide-up': {
-          from: { opacity: '0', transform: 'translateY(20px)' },
+          from: { opacity: '0', transform: 'translateY(16px)' },
           to: { opacity: '1', transform: 'translateY(0)' },
         },
       }

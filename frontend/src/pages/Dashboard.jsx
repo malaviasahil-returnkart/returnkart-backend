@@ -2,13 +2,18 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api'
 import { formatINR, daysRemaining, urgencyLevel, urgencyColor, formatDate } from '../lib/formatters'
 import BrandLogo from '../lib/BrandLogo'
+import {
+  Package, Undo2, AlertTriangle, Settings, RefreshCw, Mail,
+  Check, RotateCcw, ChevronDown, ShieldAlert, Clock, Calendar,
+  Tag, Truck, X, ArrowDownUp, SortAsc
+} from 'lucide-react'
 
 // ─── Sort options ─────────────────────────────────────────────────────────────
 const SORT_OPTIONS = [
-  { key: 'expiry_asc',   label: 'Expiring Soon' },
-  { key: 'brand',        label: 'Brand'         },
-  { key: 'value_desc',   label: 'Value: High'   },
-  { key: 'value_asc',    label: 'Value: Low'    },
+  { key: 'expiry_asc',   label: 'Expiring Soon', icon: Clock        },
+  { key: 'brand',        label: 'Brand',         icon: Tag          },
+  { key: 'value_desc',   label: 'Value: High',   icon: ArrowDownUp  },
+  { key: 'value_asc',    label: 'Value: Low',    icon: SortAsc      },
 ]
 
 function sortOrders(orders, sortKey) {
@@ -36,6 +41,37 @@ function sortOrders(orders, sortKey) {
   }
 }
 
+// ─── Skeleton loaders ─────────────────────────────────────────────────────────
+function SkeletonCard() {
+  return (
+    <div className="bg-vault-card rounded-2xl px-4 py-4 card-border animate-fade-in">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-xl skeleton flex-shrink-0" />
+        <div className="flex-1 space-y-2">
+          <div className="h-3 w-20 rounded skeleton" />
+          <div className="h-4 w-40 rounded skeleton" />
+          <div className="h-3 w-28 rounded skeleton" />
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <div className="h-7 w-8 rounded skeleton" />
+          <div className="h-3 w-12 rounded skeleton" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SkeletonTile() {
+  return (
+    <div className="rounded-2xl px-4 py-4 bg-vault-card card-border">
+      <div className="h-3 w-24 rounded skeleton mb-3" />
+      <div className="h-8 w-12 rounded skeleton mb-2" />
+      <div className="h-4 w-20 rounded skeleton mb-1" />
+      <div className="h-3 w-28 rounded skeleton" />
+    </div>
+  )
+}
+
 export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
   const [orders, setOrders]     = useState([])
   const [loading, setLoading]   = useState(true)
@@ -44,9 +80,11 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
   const [tab, setTab]           = useState('active')
   const [sort, setSort]         = useState('expiry_asc')
   const [summary, setSummary]   = useState({ activeCount: 0, activeValue: 0, returnCount: 0, returnValue: 0 })
+  const [summaryLoading, setSummaryLoading] = useState(true)
 
   // ─── Fetch summary counts (all orders, unfiltered) ──────────────────────────
   const loadSummary = useCallback(() => {
+    setSummaryLoading(true)
     api.getOrders(userId, null)
       .then(data => {
         const all = data.orders || []
@@ -64,6 +102,7 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
         })
       })
       .catch(() => {})
+      .finally(() => setSummaryLoading(false))
   }, [userId])
 
   // ─── Fetch filtered orders for the list ─────────────────────────────────────
@@ -79,7 +118,6 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
   useEffect(() => { loadOrders() }, [loadOrders])
   useEffect(() => { loadSummary() }, [loadSummary])
 
-  // ─── Refresh both lists after any mutation ──────────────────────────────────
   function refreshAll() {
     loadOrders()
     loadSummary()
@@ -136,91 +174,106 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
   return (
     <div className="min-h-screen bg-vault-black flex flex-col">
 
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-vault-black border-b border-vault-border px-4 py-3 flex items-center justify-between">
-        <h1 className="text-vault-gold font-bold text-lg tracking-tight">
+      {/* ─── Header ──────────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-10 bg-vault-black/95 backdrop-blur-sm border-b border-vault-border px-4 py-3 flex items-center justify-between" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
+        <h1 className="text-vault-gold font-bold text-lg tracking-tight select-none">
           Return<span className="text-vault-text">Kart</span>
         </h1>
         <div className="flex items-center gap-2">
           <button
             onClick={handleSync}
             disabled={syncing}
-            className="bg-vault-card card-border text-vault-muted px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 active:scale-95 transition-transform"
+            aria-label="Sync Gmail"
+            className="min-h-[44px] min-w-[44px] bg-vault-card card-border text-vault-muted px-3 py-2 rounded-xl text-xs font-medium flex items-center gap-1.5 active:scale-95 transition-transform cursor-pointer disabled:opacity-50"
           >
-            <span className={syncing ? 'animate-spin inline-block' : ''}>↻</span>
-            {syncing ? 'Syncing…' : 'Sync Gmail'}
+            <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
+            {syncing ? 'Syncing…' : 'Sync'}
           </button>
           <button
             onClick={onOpenSettings}
-            className="text-vault-muted text-lg px-2 py-1.5 hover:text-vault-gold transition-colors"
-            title="Settings"
+            aria-label="Settings"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-vault-muted hover:text-vault-gold transition-colors cursor-pointer"
           >
-            ⚙
+            <Settings size={20} />
           </button>
         </div>
       </header>
 
-      {/* ─── Summary Tiles ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 px-4 mt-4 animate-slide-up">
-        {/* Tile 1: Active Tracking */}
-        <button
-          onClick={() => setTab('active')}
-          className={`rounded-2xl px-4 py-4 text-left transition-all active:scale-95 ${
-            tab === 'active'
-              ? 'bg-vault-card border border-vault-gold/40 gold-glow'
-              : 'bg-vault-card card-border'
-          }`}
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-lg">📦</span>
-            <span className="text-vault-muted text-xs font-medium uppercase tracking-wider">Active Tracking</span>
-          </div>
-          <p className="text-3xl font-bold text-vault-text">{summary.activeCount}</p>
-          <p className="text-vault-gold text-sm font-semibold mt-1">{formatINR(summary.activeValue)}</p>
-          <p className="text-vault-muted text-xs mt-0.5">orders being tracked</p>
-        </button>
+      {/* ─── Summary Tiles ───────────────────────────────────────────────── */}
+      {summaryLoading ? (
+        <div className="grid grid-cols-2 gap-3 px-4 mt-4">
+          <SkeletonTile />
+          <SkeletonTile />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 px-4 mt-4 animate-fade-in">
+          {/* Tile 1: Active Tracking */}
+          <button
+            onClick={() => setTab('active')}
+            aria-label={`Active tracking: ${summary.activeCount} orders`}
+            className={`rounded-2xl px-4 py-4 text-left transition-all active:scale-[0.97] cursor-pointer ${
+              tab === 'active'
+                ? 'bg-vault-card border border-vault-gold/30 gold-glow'
+                : 'bg-vault-card card-border'
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-vault-gold/10 flex items-center justify-center">
+                <Package size={14} className="text-vault-gold" />
+              </div>
+              <span className="text-vault-muted text-[11px] font-semibold uppercase tracking-wider">Tracking</span>
+            </div>
+            <p className="text-3xl font-bold text-vault-text tabular-nums">{summary.activeCount}</p>
+            <p className="text-vault-gold text-sm font-semibold mt-1">{formatINR(summary.activeValue)}</p>
+            <p className="text-vault-muted text-[11px] mt-0.5">open return windows</p>
+          </button>
 
-        {/* Tile 2: Want to Return */}
-        <button
-          onClick={() => setTab('return')}
-          className={`rounded-2xl px-4 py-4 text-left transition-all active:scale-95 ${
-            tab === 'return'
-              ? 'bg-vault-card border border-vault-urgent/40'
-              : 'bg-vault-card card-border'
-          }`}
-          style={tab === 'return' ? { boxShadow: '0 0 12px rgba(255,68,68,0.15)' } : {}}
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-lg">↩️</span>
-            <span className="text-vault-muted text-xs font-medium uppercase tracking-wider">Want to Return</span>
-          </div>
-          <p className="text-3xl font-bold text-vault-text">{summary.returnCount}</p>
-          <p className="text-sm font-semibold mt-1" style={{ color: summary.returnCount > 0 ? '#FF6B6B' : '#A0A0A0' }}>
-            {formatINR(summary.returnValue)}
-          </p>
-          <p className="text-vault-muted text-xs mt-0.5">marked for return</p>
-        </button>
-      </div>
-
-      {/* Money at risk banner */}
-      {moneyAtRisk > 0 && tab === 'active' && (
-        <div className="mx-4 mt-3 rounded-2xl bg-vault-card urgent-border px-4 py-4 flex items-center justify-between animate-slide-up">
-          <div>
-            <p className="text-vault-muted text-xs uppercase tracking-wider">Money at Risk</p>
-            <p className="text-2xl font-bold text-vault-urgent mt-0.5">{formatINR(moneyAtRisk)}</p>
-            <p className="text-vault-muted text-xs mt-1">{urgentOrders.length} order{urgentOrders.length !== 1 ? 's' : ''} expiring in ≤3 days</p>
-          </div>
-          <div className="text-4xl">⚠️</div>
+          {/* Tile 2: Want to Return */}
+          <button
+            onClick={() => setTab('return')}
+            aria-label={`Want to return: ${summary.returnCount} orders`}
+            className={`rounded-2xl px-4 py-4 text-left transition-all active:scale-[0.97] cursor-pointer ${
+              tab === 'return'
+                ? 'bg-vault-card return-border'
+                : 'bg-vault-card card-border'
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-7 h-7 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                <Undo2 size={14} className="text-vault-blue" />
+              </div>
+              <span className="text-vault-muted text-[11px] font-semibold uppercase tracking-wider">Return</span>
+            </div>
+            <p className="text-3xl font-bold text-vault-text tabular-nums">{summary.returnCount}</p>
+            <p className="text-sm font-semibold mt-1" style={{ color: summary.returnCount > 0 ? '#60A5FA' : '#A0A0A0' }}>
+              {formatINR(summary.returnValue)}
+            </p>
+            <p className="text-vault-muted text-[11px] mt-0.5">marked for return</p>
+          </button>
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-1 px-4 mt-4">
+      {/* ─── Money at Risk Banner ────────────────────────────────────────── */}
+      {moneyAtRisk > 0 && tab === 'active' && (
+        <div className="mx-4 mt-3 rounded-2xl bg-vault-card urgent-border px-4 py-4 flex items-center justify-between animate-slide-up">
+          <div>
+            <p className="text-vault-muted text-[11px] uppercase tracking-wider font-semibold">Money at Risk</p>
+            <p className="text-2xl font-bold text-vault-urgent mt-0.5 tabular-nums">{formatINR(moneyAtRisk)}</p>
+            <p className="text-vault-muted text-xs mt-1">{urgentOrders.length} order{urgentOrders.length !== 1 ? 's' : ''} expiring in 3 days or less</p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle size={20} className="text-vault-urgent" />
+          </div>
+        </div>
+      )}
+
+      {/* ─── Tabs ────────────────────────────────────────────────────────── */}
+      <div className="flex gap-2 px-4 mt-4">
         {[['active','Active'],['return','Return'],['all','All'],['expired','Expired']].map(([val, label]) => (
           <button
             key={val}
             onClick={() => setTab(val)}
-            className={`px-4 py-1.5 rounded-xl text-sm font-medium transition-colors ${
+            className={`min-h-[36px] px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
               tab === val
                 ? 'bg-vault-gold text-vault-black'
                 : 'bg-vault-card text-vault-muted card-border'
@@ -228,7 +281,7 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
           >
             {label}
             {val === 'return' && summary.returnCount > 0 && (
-              <span className="ml-1.5 bg-red-500/20 text-red-400 text-xs px-1.5 py-0.5 rounded-full">
+              <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] bg-blue-500/20 text-blue-400 text-[10px] font-bold px-1 rounded-full">
                 {summary.returnCount}
               </span>
             )}
@@ -236,40 +289,54 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
         ))}
       </div>
 
-      {/* Sort bar */}
-      <div className="flex gap-1.5 px-4 mt-3 overflow-x-auto pb-1 scrollbar-hide">
-        {SORT_OPTIONS.map(opt => (
-          <button
-            key={opt.key}
-            onClick={() => setSort(opt.key)}
-            className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-              sort === opt.key
-                ? 'bg-vault-gold text-vault-black'
-                : 'bg-vault-border text-vault-muted'
-            }`}
-          >
-            {sort === opt.key && '✓ '}{opt.label}
-          </button>
-        ))}
+      {/* ─── Sort Bar ────────────────────────────────────────────────────── */}
+      <div className="flex gap-2 px-4 mt-3 overflow-x-auto pb-1 scrollbar-hide">
+        {SORT_OPTIONS.map(opt => {
+          const Icon = opt.icon
+          return (
+            <button
+              key={opt.key}
+              onClick={() => setSort(opt.key)}
+              className={`flex-shrink-0 min-h-[32px] px-3 py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                sort === opt.key
+                  ? 'bg-vault-gold text-vault-black'
+                  : 'bg-vault-border text-vault-muted'
+              }`}
+            >
+              <Icon size={12} />
+              {opt.label}
+            </button>
+          )
+        })}
       </div>
 
-      {/* Orders list */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3 pb-24">
+      {/* ─── Orders List ─────────────────────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3" style={{ paddingBottom: 'max(96px, calc(96px + env(safe-area-inset-bottom)))' }}>
         {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="w-7 h-7 border-2 border-vault-gold border-t-transparent rounded-full animate-spin" />
+          <div className="flex flex-col gap-3">
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
           </div>
         ) : sortedOrders.length === 0 ? (
           <div className="flex flex-col items-center py-16 gap-4 animate-fade-in">
-            <span className="text-5xl">{tab === 'return' ? '↩️' : '📬'}</span>
-            <p className="text-vault-muted text-center text-sm">
-              {tab === 'active' ? 'No active orders tracked yet.\nTap Sync Gmail to import orders.'
-                : tab === 'return' ? 'No orders marked for return yet.\nTap an order and hit "Want to Return".'
+            <div className="w-16 h-16 rounded-2xl bg-vault-card card-border flex items-center justify-center">
+              {tab === 'return' ? <Undo2 size={28} className="text-vault-muted" /> : <Mail size={28} className="text-vault-muted" />}
+            </div>
+            <p className="text-vault-muted text-center text-sm leading-relaxed max-w-[260px]">
+              {tab === 'active' ? 'No active orders tracked yet. Tap Sync to import orders from Gmail.'
+                : tab === 'return' ? 'No orders marked for return yet. Tap an order and hit Want to Return.'
                 : 'No orders here.'}
             </p>
             {tab === 'active' && (
-              <button onClick={handleSync} disabled={syncing} className="mt-2 bg-vault-gold text-vault-black px-6 py-2 rounded-xl font-semibold text-sm active:scale-95 transition-transform">
-                {syncing ? 'Syncing…' : '📧 Sync Gmail Now'}
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className="mt-2 min-h-[44px] bg-vault-gold text-vault-black px-6 py-3 rounded-xl font-semibold text-sm active:scale-95 transition-transform cursor-pointer flex items-center gap-2"
+              >
+                <Mail size={16} />
+                {syncing ? 'Syncing…' : 'Sync Gmail Now'}
               </button>
             )}
           </div>
@@ -306,6 +373,7 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
   )
 }
 
+// ─── Order Card ───────────────────────────────────────────────────────────────
 function OrderCard({ order, onTap }) {
   const days = daysRemaining(order.return_deadline)
   const level = urgencyLevel(days)
@@ -315,7 +383,7 @@ function OrderCard({ order, onTap }) {
   const cardClass = level === 'expired'
     ? 'opacity-50'
     : isWantToReturn
-    ? 'border border-blue-500/30'
+    ? 'return-border'
     : level === 'critical' || level === 'urgent'
     ? 'urgent-border'
     : 'card-border'
@@ -323,7 +391,7 @@ function OrderCard({ order, onTap }) {
   return (
     <button
       onClick={onTap}
-      className={`w-full bg-vault-card rounded-2xl px-4 py-4 text-left ${cardClass} active:scale-98 transition-transform animate-slide-up`}
+      className={`w-full bg-vault-card rounded-2xl px-4 py-4 text-left ${cardClass} active:scale-[0.98] transition-transform animate-slide-up cursor-pointer`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -332,10 +400,12 @@ function OrderCard({ order, onTap }) {
             <div className="flex items-center gap-2 mb-0.5">
               <span className="text-xs font-semibold text-vault-gold truncate">{order.brand}</span>
               {order.is_replacement_only && (
-                <span className="text-xs px-1.5 py-0.5 rounded-full bg-yellow-900/40 text-yellow-400 flex-shrink-0">Replace</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-900/40 text-yellow-400 flex-shrink-0 font-medium">Replace</span>
               )}
               {isWantToReturn && (
-                <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-900/40 text-blue-400 flex-shrink-0">↩ Return</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-900/30 text-blue-400 flex-shrink-0 font-medium flex items-center gap-0.5">
+                  <Undo2 size={9} /> Return
+                </span>
               )}
             </div>
             <p className="text-vault-text font-medium text-sm truncate">{order.item_name}</p>
@@ -349,8 +419,8 @@ function OrderCard({ order, onTap }) {
             <span className="text-vault-muted text-xs font-medium">Expired</span>
           ) : (
             <>
-              <span className="text-2xl font-bold" style={{ color }}>{days}</span>
-              <span className="text-xs" style={{ color: '#A0A0A0' }}>day{days !== 1 ? 's' : ''} left</span>
+              <span className="text-2xl font-bold tabular-nums" style={{ color }}>{days}</span>
+              <span className="text-[11px] text-vault-muted">day{days !== 1 ? 's' : ''}</span>
             </>
           )}
           <CountdownArc days={days} color={color} />
@@ -360,6 +430,7 @@ function OrderCard({ order, onTap }) {
   )
 }
 
+// ─── Countdown Arc ────────────────────────────────────────────────────────────
 function CountdownArc({ days, color }) {
   if (days === null || days < 0) return null
   const max = 30
@@ -368,19 +439,20 @@ function CountdownArc({ days, color }) {
   const circ = 2 * Math.PI * r
   const dash = pct * circ
   return (
-    <svg width="32" height="32" className="mt-1" style={{ transform: 'rotate(-90deg)' }}>
+    <svg width="32" height="32" className="mt-1" style={{ transform: 'rotate(-90deg)' }} aria-hidden="true">
       <circle cx="16" cy="16" r={r} fill="none" stroke="#2A2A2A" strokeWidth="2.5" />
       <circle
         cx="16" cy="16" r={r} fill="none"
         stroke={color} strokeWidth="2.5"
         strokeDasharray={`${dash} ${circ}`}
         strokeLinecap="round"
-        style={{ transition: 'stroke-dasharray 0.6s ease' }}
+        style={{ transition: 'stroke-dasharray 0.4s ease' }}
       />
     </svg>
   )
 }
 
+// ─── Order Detail Sheet ───────────────────────────────────────────────────────
 function OrderSheet({ order, onClose, onKept, onReturned, onWantToReturn, onUndoWantToReturn }) {
   const days = daysRemaining(order.return_deadline)
   const level = urgencyLevel(days)
@@ -390,56 +462,95 @@ function OrderSheet({ order, onClose, onKept, onReturned, onWantToReturn, onUndo
   return (
     <>
       <div onClick={onClose} className="fixed inset-0 bg-black/60 z-20 animate-fade-in" />
-      <div className="fixed bottom-0 left-0 right-0 z-30 bg-vault-card rounded-t-3xl px-5 py-6 flex flex-col gap-5 animate-slide-up max-h-[85vh] overflow-y-auto">
+      <div
+        className="fixed bottom-0 left-0 right-0 z-30 bg-vault-card rounded-t-3xl px-5 py-6 flex flex-col gap-5 animate-slide-up max-h-[85vh] overflow-y-auto elevation-3"
+        style={{ paddingBottom: 'max(24px, calc(24px + env(safe-area-inset-bottom)))' }}
+        role="dialog"
+        aria-label={`Order details for ${order.item_name}`}
+      >
+        {/* Drag handle */}
         <div className="w-10 h-1 bg-vault-border rounded-full mx-auto -mt-1" />
-        <div className="flex items-center gap-3">
+
+        {/* Close button — accessible */}
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute top-4 right-4 min-w-[44px] min-h-[44px] flex items-center justify-center text-vault-muted hover:text-vault-text transition-colors cursor-pointer"
+        >
+          <X size={20} />
+        </button>
+
+        {/* Header */}
+        <div className="flex items-center gap-3 pr-10">
           <BrandLogo brand={order.brand} size={48} className="rounded-2xl flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-sm font-bold text-vault-gold">{order.brand}</span>
               {isWantToReturn && (
-                <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-900/40 text-blue-400">↩ Returning</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-900/30 text-blue-400 font-medium flex items-center gap-0.5">
+                  <Undo2 size={9} /> Returning
+                </span>
               )}
             </div>
             <h2 className="text-vault-text font-semibold text-base mt-0.5 truncate">{order.item_name}</h2>
             <p className="text-vault-muted text-xs">Order #{order.order_id}</p>
           </div>
         </div>
+
+        {/* Detail grid */}
         <div className="grid grid-cols-2 gap-3">
           {[
-            { label: 'Order Value', value: formatINR(order.price), highlight: true },
-            { label: 'Days Remaining', value: days === null ? '—' : days < 0 ? 'Expired' : `${days} days`, color },
-            { label: 'Order Date', value: formatDate(order.order_date) },
-            { label: 'Return Deadline', value: formatDate(order.return_deadline) },
-            order.category && { label: 'Category', value: order.category },
-            order.courier_partner && { label: 'Courier', value: order.courier_partner },
-          ].filter(Boolean).map(item => (
-            <div key={item.label} className="bg-vault-black rounded-xl px-3 py-3 card-border">
-              <p className="text-vault-muted text-xs">{item.label}</p>
-              <p className="font-semibold text-sm mt-0.5" style={{ color: item.color || (item.highlight ? '#D4AF37' : '#FFFFFF') }}>
-                {item.value}
-              </p>
-            </div>
-          ))}
+            { label: 'Order Value', value: formatINR(order.price), highlight: true, icon: Package },
+            { label: 'Days Left', value: days === null ? '—' : days < 0 ? 'Expired' : `${days} days`, color, icon: Clock },
+            { label: 'Order Date', value: formatDate(order.order_date), icon: Calendar },
+            { label: 'Deadline', value: formatDate(order.return_deadline), icon: ShieldAlert },
+            order.category && { label: 'Category', value: order.category, icon: Tag },
+            order.courier_partner && { label: 'Courier', value: order.courier_partner, icon: Truck },
+          ].filter(Boolean).map(item => {
+            const Icon = item.icon
+            return (
+              <div key={item.label} className="bg-vault-black rounded-xl px-3 py-3 card-border">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Icon size={11} className="text-vault-muted" />
+                  <p className="text-vault-muted text-[11px] font-medium">{item.label}</p>
+                </div>
+                <p className="font-semibold text-sm" style={{ color: item.color || (item.highlight ? '#D4AF37' : '#FFFFFF') }}>
+                  {item.value}
+                </p>
+              </div>
+            )
+          })}
         </div>
+
+        {/* Replacement warning */}
         {order.is_replacement_only && (
-          <div className="bg-yellow-900/20 border border-yellow-700/30 rounded-xl px-4 py-3 text-sm text-yellow-400">
-            ⚠️ This item is <strong>replacement only</strong> — no cash refund available.
+          <div className="bg-yellow-900/15 border border-yellow-700/25 rounded-xl px-4 py-3 text-sm text-yellow-400 flex items-start gap-2">
+            <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+            <span>This item is <strong>replacement only</strong> — no cash refund available.</span>
           </div>
         )}
 
-        {/* ─── Action Buttons ──────────────────────────────────────────── */}
+        {/* ─── Action Buttons ─────────────────────────────────────────── */}
         {order.status === 'active' && (
           <div className="flex flex-col gap-3">
-            <button onClick={onWantToReturn} className="w-full bg-vault-gold text-vault-black py-4 rounded-2xl font-semibold text-base active:scale-95 transition-transform">
-              ↩️ Want to Return
+            <button
+              onClick={onWantToReturn}
+              className="w-full min-h-[52px] bg-vault-gold text-vault-black py-4 rounded-2xl font-semibold text-base active:scale-[0.97] transition-transform cursor-pointer flex items-center justify-center gap-2"
+            >
+              <Undo2 size={18} /> Want to Return
             </button>
             <div className="grid grid-cols-2 gap-3">
-              <button onClick={onReturned} className="bg-vault-card card-border text-vault-muted py-3 rounded-2xl font-medium text-sm active:scale-95 transition-transform">
-                📦 Returned
+              <button
+                onClick={onReturned}
+                className="min-h-[48px] bg-vault-card card-border text-vault-muted py-3 rounded-2xl font-medium text-sm active:scale-95 transition-transform cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Package size={15} /> Returned
               </button>
-              <button onClick={onKept} className="bg-vault-card card-border text-vault-muted py-3 rounded-2xl font-medium text-sm active:scale-95 transition-transform">
-                ✓ Keeping
+              <button
+                onClick={onKept}
+                className="min-h-[48px] bg-vault-card card-border text-vault-muted py-3 rounded-2xl font-medium text-sm active:scale-95 transition-transform cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Check size={15} /> Keeping
               </button>
             </div>
           </div>
@@ -447,15 +558,24 @@ function OrderSheet({ order, onClose, onKept, onReturned, onWantToReturn, onUndo
 
         {isWantToReturn && (
           <div className="flex flex-col gap-3">
-            <button onClick={onReturned} className="w-full bg-vault-gold text-vault-black py-4 rounded-2xl font-semibold text-base active:scale-95 transition-transform">
-              📦 I Returned This
+            <button
+              onClick={onReturned}
+              className="w-full min-h-[52px] bg-vault-gold text-vault-black py-4 rounded-2xl font-semibold text-base active:scale-[0.97] transition-transform cursor-pointer flex items-center justify-center gap-2"
+            >
+              <Package size={18} /> I Returned This
             </button>
             <div className="grid grid-cols-2 gap-3">
-              <button onClick={onUndoWantToReturn} className="bg-vault-card card-border text-vault-muted py-3 rounded-2xl font-medium text-sm active:scale-95 transition-transform">
-                ↶ Undo
+              <button
+                onClick={onUndoWantToReturn}
+                className="min-h-[48px] bg-vault-card card-border text-vault-muted py-3 rounded-2xl font-medium text-sm active:scale-95 transition-transform cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <RotateCcw size={15} /> Undo
               </button>
-              <button onClick={onKept} className="bg-vault-card card-border text-vault-muted py-3 rounded-2xl font-medium text-sm active:scale-95 transition-transform">
-                ✓ Keeping
+              <button
+                onClick={onKept}
+                className="min-h-[48px] bg-vault-card card-border text-vault-muted py-3 rounded-2xl font-medium text-sm active:scale-95 transition-transform cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Check size={15} /> Keeping
               </button>
             </div>
           </div>
