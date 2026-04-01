@@ -1,26 +1,8 @@
 """
-RETURNKART.IN — GMAIL SERVICE
+RETURNKART.IN — GMAIL SERVICE (MULTI-ACCOUNT)
 
-PERFORMANCE ARCHITECTURE:
-  OLD: for each email → fetch → gemini → save  (sequential, ~2s × 50 = 100s)
-  NEW:
-    Step 1: Fetch all email IDs in one list call per platform query
-    Step 2: Fetch email bodies in parallel (asyncio.gather)
-    Step 3: Run Gemini on all emails in parallel (asyncio.gather)
-    Step 4: Bulk upsert all extracted orders in one DB call
-  Result: ~50 emails in 6-12 seconds instead of 90-100 seconds.
-
-FOLDER NOTE:
-  Gmail API searches ALL labels/folders by default (Inbox, Promotions,
-  Updates, Social, custom labels like "Orders"). We do NOT need to add
-  "in:anywhere" — it's already the default behaviour of messages.list.
-  The only thing excluded by default is Spam and Trash, which is correct.
-
-QUERY DESIGN:
-  - Sender domains are broad (amazon.in covers all amazon.in subdomains)
-  - Subject filter is intentionally loose to catch order, delivery,
-    dispatch, return, refund, shipped, confirm — not just "order"
-  - Each platform gets a SINGLE combined query to minimise API calls
+Sync now iterates over ALL connected Gmail accounts for a user.
+Each account is synced independently with its own credentials.
 """
 import asyncio
 import base64
@@ -33,7 +15,7 @@ from googleapiclient.discovery import build
 
 from backend.config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 from backend.services.supabase_service import (
-    get_gmail_token,
+    get_all_gmail_tokens,
     save_gmail_token,
     bulk_upsert_orders,
 )
@@ -42,26 +24,12 @@ from backend.models.order import OrderCreate
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PLATFORM QUERIES
-#
-# Gmail API searches ALL folders by default — Inbox, Promotions, Updates,
-# Social, any custom label. No need to add "in:anywhere".
-#
-# Strategy per platform:
-#   - List ALL known sender addresses/domains with OR
-#   - Use a loose subject OR clause covering every order lifecycle event
-#   - One query per platform keeps API calls low
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Shared subject keywords covering the full order lifecycle
 _ORDER_SUBJECTS = (
     "subject:(order OR ordered OR dispatch OR dispatched OR shipped OR "
     "delivery OR delivered OR return OR refund OR exchange OR replacement OR confirm)"
 )
 
 PLATFORM_QUERIES = {
-
     "amazon": (
         "from:(amazon.in OR @amazon.in OR auto-confirm@amazon.in OR "
         "shipment-tracking@amazon.in OR order-update@amazon.in OR "
@@ -69,56 +37,47 @@ PLATFORM_QUERIES = {
         "no-reply@amazon.in OR donotreply@amazon.in) "
         + _ORDER_SUBJECTS
     ),
-
     "flipkart": (
         "from:(flipkart.com OR @flipkart.com OR noreply@flipkart.com OR "
         "no-reply@flipkart.com OR order@flipkart.com OR "
         "returns@flipkart.com OR track@flipkart.com) "
         + _ORDER_SUBJECTS
     ),
-
     "myntra": (
         "from:(myntra.com OR @myntra.com OR noreply@myntra.com OR "
         "no-reply@myntra.com OR returns@myntra.com) "
         + _ORDER_SUBJECTS
     ),
-
     "meesho": (
         "from:(meesho.com OR @meesho.com OR noreply@meesho.com OR "
         "no-reply@meesho.com OR support@meesho.com) "
         + _ORDER_SUBJECTS
     ),
-
     "ajio": (
         "from:(ajio.com OR @ajio.com OR noreply@ajio.com OR "
         "no-reply@ajio.com OR care@ajio.com) "
         + _ORDER_SUBJECTS
     ),
-
     "nykaa": (
         "from:(nykaa.com OR @nykaa.com OR noreply@nykaa.com OR "
         "no-reply@nykaa.com OR care@nykaa.com OR orders@nykaa.com) "
         + _ORDER_SUBJECTS
     ),
-
     "jiomart": (
         "from:(jiomart.com OR @jiomart.com OR noreply@jiomart.com OR "
         "care@jiomart.com) "
         + _ORDER_SUBJECTS
     ),
-
     "tatacliq": (
         "from:(tatacliq.com OR @tatacliq.com OR noreply@tatacliq.com OR "
         "care@tatacliq.com) "
         + _ORDER_SUBJECTS
     ),
-
     "snapdeal": (
         "from:(snapdeal.com OR @snapdeal.com OR noreply@snapdeal.com OR "
         "cs@snapdeal.com) "
         + _ORDER_SUBJECTS
     ),
-
     "croma": (
         "from:(croma.com OR @croma.com OR noreply@croma.com OR "
         "care@croma.com) "
@@ -126,7 +85,6 @@ PLATFORM_QUERIES = {
     ),
 }
 
-# Max parallel Gemini calls — stays within free-tier (15 RPM). Raise to 10 on paid.
 GEMINI_CONCURRENCY = 5
 
 
@@ -151,6 +109,7 @@ async def _refresh_if_needed(user_id: str, token_row: dict) -> Credentials:
             refresh_token=creds.refresh_token,
             token_expiry=creds.expiry,
             scope=" ".join(creds.scopes) if creds.scopes else "",
+            user_email=token_row.get("user_email"),
         )
     return creds
 
@@ -239,81 +198,111 @@ async def _process_one_email(
         return None
 
 
+async def _sync_single_account(
+    user_id: str,
+    token_row: dict,
+    max_emails: int = 100,
+) -> dict:
+    """Sync orders from ONE Gmail account."""
+    account_email = token_row.get("user_email", "unknown")
+
+    try:
+        creds = await _refresh_if_needed(user_id, token_row)
+        loop = asyncio.get_event_loop()
+        service = await loop.run_in_executor(
+            None, lambda: build("gmail", "v1", credentials=creds)
+        )
+
+        all_refs: list[tuple[str, str]] = []
+        per_platform = max(1, max_emails // len(PLATFORM_QUERIES))
+
+        for platform, query in PLATFORM_QUERIES.items():
+            try:
+                results = await loop.run_in_executor(
+                    None,
+                    lambda q=query: service.users().messages().list(
+                        userId="me", q=q, maxResults=per_platform
+                    ).execute()
+                )
+                for m in results.get("messages", []):
+                    all_refs.append((m["id"], platform))
+            except Exception as e:
+                print(f"[Gmail:{account_email}] List error for {platform}: {e}")
+
+        if not all_refs:
+            return {"account": account_email, "synced": 0, "new_orders": 0, "errors": 0}
+
+        seen_ids: set[str] = set()
+        unique_refs = []
+        for msg_id, platform in all_refs:
+            if msg_id not in seen_ids:
+                seen_ids.add(msg_id)
+                unique_refs.append((msg_id, platform))
+
+        fetch_tasks = [
+            _fetch_email_async(service, msg_id)
+            for msg_id, _ in unique_refs
+        ]
+        fetched_msgs = await asyncio.gather(*fetch_tasks)
+
+        msg_platform_pairs = [
+            (msg, platform)
+            for (msg, (_, platform)) in zip(fetched_msgs, unique_refs)
+            if msg is not None
+        ]
+
+        semaphore = asyncio.Semaphore(GEMINI_CONCURRENCY)
+        gemini_tasks = [
+            _process_one_email(msg, platform, user_id, semaphore)
+            for msg, platform in msg_platform_pairs
+        ]
+        results = await asyncio.gather(*gemini_tasks)
+
+        orders = [r for r in results if r is not None]
+        errors = len([r for r in results if r is None and r != 0])
+
+        new_orders = 0
+        if orders:
+            new_orders = await bulk_upsert_orders(orders)
+
+        return {
+            "account": account_email,
+            "synced": len(msg_platform_pairs),
+            "new_orders": new_orders,
+            "errors": max(0, errors),
+        }
+
+    except Exception as e:
+        print(f"[Gmail:{account_email}] Sync failed: {e}")
+        return {"account": account_email, "synced": 0, "new_orders": 0, "errors": 1, "error_detail": str(e)}
+
+
 async def sync_gmail_orders(user_id: str, max_emails: int = 100) -> dict:
     """
-    Optimised sync — parallel fetch + parallel Gemini + bulk upsert.
-    max_emails raised to 100 (from 50) to catch more historical orders.
+    Sync orders from ALL connected Gmail accounts.
     """
-    token_row = await get_gmail_token(user_id)
-    if not token_row:
-        return {"error": "Gmail not connected", "synced": 0, "new_orders": 0}
+    all_tokens = await get_all_gmail_tokens(user_id)
+    if not all_tokens:
+        return {"error": "No Gmail accounts connected", "synced": 0, "new_orders": 0}
 
-    creds = await _refresh_if_needed(user_id, token_row)
-    loop  = asyncio.get_event_loop()
-    service = await loop.run_in_executor(
-        None, lambda: build("gmail", "v1", credentials=creds)
-    )
+    # Sync each account
+    account_results = []
+    total_synced = 0
+    total_new = 0
+    total_errors = 0
 
-    # ── Step 1: Collect all message IDs across all platforms ──────────────
-    all_refs: list[tuple[str, str]] = []
-    per_platform = max(1, max_emails // len(PLATFORM_QUERIES))
-
-    for platform, query in PLATFORM_QUERIES.items():
-        try:
-            results = await loop.run_in_executor(
-                None,
-                lambda q=query: service.users().messages().list(
-                    userId="me", q=q, maxResults=per_platform
-                ).execute()
-            )
-            for m in results.get("messages", []):
-                all_refs.append((m["id"], platform))
-        except Exception as e:
-            print(f"[Gmail] List error for {platform}: {e}")
-
-    if not all_refs:
-        return {"synced": 0, "new_orders": 0, "errors": 0}
-
-    # Deduplicate message IDs (same email can match multiple platform queries)
-    seen_ids: set[str] = set()
-    unique_refs = []
-    for msg_id, platform in all_refs:
-        if msg_id not in seen_ids:
-            seen_ids.add(msg_id)
-            unique_refs.append((msg_id, platform))
-
-    # ── Step 2: Fetch all email bodies in parallel ────────────────────────
-    fetch_tasks = [
-        _fetch_email_async(service, msg_id)
-        for msg_id, _ in unique_refs
-    ]
-    fetched_msgs = await asyncio.gather(*fetch_tasks)
-
-    msg_platform_pairs = [
-        (msg, platform)
-        for (msg, (_, platform)) in zip(fetched_msgs, unique_refs)
-        if msg is not None
-    ]
-
-    # ── Step 3: Run Gemini on all emails in parallel ──────────────────────
-    semaphore = asyncio.Semaphore(GEMINI_CONCURRENCY)
-    gemini_tasks = [
-        _process_one_email(msg, platform, user_id, semaphore)
-        for msg, platform in msg_platform_pairs
-    ]
-    results = await asyncio.gather(*gemini_tasks)
-
-    # ── Step 4: Bulk upsert all extracted orders ──────────────────────────
-    orders = [r for r in results if r is not None]
-    errors = len([r for r in results if r is None and r != 0])
-
-    new_orders = 0
-    if orders:
-        new_orders = await bulk_upsert_orders(orders)
+    for token_row in all_tokens:
+        result = await _sync_single_account(user_id, token_row, max_emails)
+        account_results.append(result)
+        total_synced += result.get("synced", 0)
+        total_new += result.get("new_orders", 0)
+        total_errors += result.get("errors", 0)
 
     return {
-        "synced": len(msg_platform_pairs),
-        "new_orders": new_orders,
-        "errors": max(0, errors),
+        "synced": total_synced,
+        "new_orders": total_new,
+        "errors": total_errors,
+        "accounts_synced": len(all_tokens),
         "platforms_searched": len(PLATFORM_QUERIES),
+        "per_account": account_results,
     }

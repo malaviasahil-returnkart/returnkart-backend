@@ -2,10 +2,8 @@
 RETURNKART.IN — SUPABASE SERVICE
 Central DB layer. All Supabase reads/writes go through here.
 
-PERFORMANCE:
-  - Client is cached at module level (one connection, not one per call)
-  - bulk_upsert_orders() inserts all orders in a single DB round trip
-  - get_existing_order_ids() lets callers skip AI on already-known orders
+MULTI-GMAIL: gmail_tokens now supports multiple rows per user.
+Unique constraint is on (user_id, user_email).
 """
 from datetime import datetime, date, timezone, timedelta
 from typing import Optional
@@ -16,7 +14,6 @@ from backend.models.order import OrderCreate
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# ── Cached client — created once, reused forever ─────────────────────────
 _client: Optional[Client] = None
 
 def get_client() -> Client:
@@ -27,7 +24,7 @@ def get_client() -> Client:
 
 
 # ─────────────────────────────────────────────
-# GMAIL TOKENS
+# GMAIL TOKENS (multi-account)
 # ─────────────────────────────────────────────
 
 async def save_gmail_token(
@@ -36,6 +33,9 @@ async def save_gmail_token(
     refresh_token: Optional[str],
     token_expiry: Optional[datetime],
     scope: str,
+    user_email: Optional[str] = None,
+    user_name: Optional[str] = None,
+    user_picture: Optional[str] = None,
 ) -> dict:
     client = get_client()
     data = {
@@ -46,11 +46,21 @@ async def save_gmail_token(
         "scope": scope,
         "updated_at": datetime.now(IST).isoformat(),
     }
-    result = client.table("gmail_tokens").upsert(data, on_conflict="user_id").execute()
+    if user_email is not None:
+        data["user_email"] = user_email
+    if user_name is not None:
+        data["user_name"] = user_name
+    if user_picture is not None:
+        data["user_picture"] = user_picture
+
+    # Upsert on (user_id, user_email) for multi-account support
+    conflict = "user_id,user_email" if user_email else "user_id"
+    result = client.table("gmail_tokens").upsert(data, on_conflict=conflict).execute()
     return result.data[0] if result.data else {}
 
 
 async def get_gmail_token(user_id: str) -> Optional[dict]:
+    """Get the first connected Gmail token (backward compat)."""
     client = get_client()
     result = (
         client.table("gmail_tokens")
@@ -62,8 +72,39 @@ async def get_gmail_token(user_id: str) -> Optional[dict]:
     return result.data[0] if result.data else None
 
 
-async def delete_gmail_token(user_id: str) -> None:
-    get_client().table("gmail_tokens").delete().eq("user_id", user_id).execute()
+async def get_all_gmail_tokens(user_id: str) -> list:
+    """Get ALL connected Gmail accounts for a user."""
+    client = get_client()
+    result = (
+        client.table("gmail_tokens")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", desc=False)
+        .execute()
+    )
+    return result.data or []
+
+
+async def get_gmail_token_by_email(user_id: str, user_email: str) -> Optional[dict]:
+    """Get a specific Gmail token by email address."""
+    client = get_client()
+    result = (
+        client.table("gmail_tokens")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("user_email", user_email)
+        .limit(1)
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+async def delete_gmail_token(user_id: str, user_email: Optional[str] = None) -> None:
+    """Delete one Gmail token (by email) or ALL tokens for a user."""
+    q = get_client().table("gmail_tokens").delete().eq("user_id", user_id)
+    if user_email:
+        q = q.eq("user_email", user_email)
+    q.execute()
 
 
 # ─────────────────────────────────────────────
@@ -131,7 +172,6 @@ async def delete_email_token(user_id: str, provider: str) -> None:
 # ─────────────────────────────────────────────
 
 def _order_to_dict(order: OrderCreate) -> dict:
-    """Convert an OrderCreate to a Supabase-safe dict."""
     data = order.model_dump()
     for key, val in data.items():
         if isinstance(val, (date, datetime)):
@@ -140,7 +180,6 @@ def _order_to_dict(order: OrderCreate) -> dict:
 
 
 async def upsert_order(order: OrderCreate) -> dict:
-    """Single order upsert. Prefer bulk_upsert_orders() for batches."""
     client = get_client()
     result = (
         client.table("orders")
@@ -151,11 +190,6 @@ async def upsert_order(order: OrderCreate) -> dict:
 
 
 async def bulk_upsert_orders(orders: list[OrderCreate]) -> int:
-    """
-    Insert/update a batch of orders in ONE Supabase round trip.
-    Returns the number of rows upserted.
-    This is the key performance win — replaces N individual upserts.
-    """
     if not orders:
         return 0
     client = get_client()
@@ -169,10 +203,6 @@ async def bulk_upsert_orders(orders: list[OrderCreate]) -> int:
 
 
 async def get_existing_order_ids(user_id: str) -> set[str]:
-    """
-    Return the set of order_ids already stored for this user.
-    Used to skip Gemini extraction on emails we've already processed.
-    """
     result = (
         get_client().table("orders")
         .select("order_id")

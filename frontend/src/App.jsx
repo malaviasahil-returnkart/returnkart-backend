@@ -8,7 +8,8 @@ export default function App() {
   const [userId, setUserId] = useState(() => localStorage.getItem('rk_user_id'))
   const [gmailConnected, setGmailConnected] = useState(false)
   const [checking, setChecking] = useState(true)
-  const [page, setPage] = useState('dashboard') // 'dashboard' | 'settings'
+  const [page, setPage] = useState('dashboard')
+  const [accounts, setAccounts] = useState([])
   const [userProfile, setUserProfile] = useState(() => {
     try {
       const stored = localStorage.getItem('rk_user_profile')
@@ -22,7 +23,7 @@ export default function App() {
     if (params.get('gmail') === 'connected') {
       setGmailConnected(true)
 
-      // Store Google profile data from callback
+      // Store/update Google profile from callback
       const name = params.get('user_name')
       const email = params.get('user_email')
       const picture = params.get('user_picture')
@@ -33,6 +34,11 @@ export default function App() {
       }
 
       window.history.replaceState({}, '', '/')
+
+      // Refresh accounts list after adding a new one
+      if (userId) {
+        api.getAccounts(userId).then(data => setAccounts(data.accounts || [])).catch(() => {})
+      }
     }
     if (params.get('error')) {
       console.error('OAuth error:', params.get('error'))
@@ -40,11 +46,24 @@ export default function App() {
     }
   }, [])
 
-  // Check Gmail connection status
+  // Check Gmail connection status + load accounts
   useEffect(() => {
     if (!userId) { setChecking(false); return }
-    api.authStatus(userId)
-      .then(data => setGmailConnected(data.connected))
+    Promise.all([
+      api.authStatus(userId),
+      api.getAccounts(userId),
+    ])
+      .then(([status, accts]) => {
+        setGmailConnected(status.connected)
+        setAccounts(accts.accounts || [])
+        // Set profile from first account if not already set
+        if (!localStorage.getItem('rk_user_profile') && accts.accounts?.length > 0) {
+          const first = accts.accounts[0]
+          const profile = { name: first.name, email: first.email, picture: first.picture }
+          localStorage.setItem('rk_user_profile', JSON.stringify(profile))
+          setUserProfile(profile)
+        }
+      })
       .catch(() => {})
       .finally(() => setChecking(false))
   }, [userId])
@@ -55,12 +74,45 @@ export default function App() {
     window.location.href = api.gmailOAuthUrl(uid)
   }
 
-  function handleDisconnect() {
+  function handleAddAccount() {
+    if (userId) {
+      window.location.href = api.gmailOAuthUrl(userId)
+    }
+  }
+
+  function handleDisconnectAccount(email) {
+    if (!userId) return
+    api.authRevoke(userId, email)
+      .then(() => api.getAccounts(userId))
+      .then(data => {
+        const accts = data.accounts || []
+        setAccounts(accts)
+        if (accts.length === 0) {
+          // No accounts left — full logout
+          localStorage.removeItem('rk_user_id')
+          localStorage.removeItem('rk_user_profile')
+          setUserId(null)
+          setUserProfile(null)
+          setGmailConnected(false)
+          setPage('dashboard')
+        } else {
+          // Update profile to first remaining account
+          const first = accts[0]
+          const profile = { name: first.name, email: first.email, picture: first.picture }
+          localStorage.setItem('rk_user_profile', JSON.stringify(profile))
+          setUserProfile(profile)
+        }
+      })
+      .catch(console.error)
+  }
+
+  function handleDisconnectAll() {
     if (userId) api.authRevoke(userId).catch(() => {})
     localStorage.removeItem('rk_user_id')
     localStorage.removeItem('rk_user_profile')
     setUserId(null)
     setUserProfile(null)
+    setAccounts([])
     setGmailConnected(false)
     setPage('dashboard')
   }
@@ -82,8 +134,11 @@ export default function App() {
       <Settings
         userId={userId}
         userProfile={userProfile}
+        accounts={accounts}
         onBack={() => setPage('dashboard')}
-        onDisconnect={handleDisconnect}
+        onDisconnect={handleDisconnectAll}
+        onDisconnectAccount={handleDisconnectAccount}
+        onAddAccount={handleAddAccount}
       />
     )
   }
@@ -92,8 +147,10 @@ export default function App() {
     <Dashboard
       userId={userId}
       userProfile={userProfile}
-      onDisconnect={handleDisconnect}
+      accounts={accounts}
+      onDisconnect={handleDisconnectAll}
       onOpenSettings={() => setPage('settings')}
+      onAddAccount={handleAddAccount}
     />
   )
 }

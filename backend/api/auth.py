@@ -1,12 +1,12 @@
 """
-RETURNKART.IN — GMAIL OAUTH ROUTES
-Task #10: Build Gmail OAuth authentication flow
+RETURNKART.IN — GMAIL OAUTH ROUTES (MULTI-ACCOUNT)
 
 Flow:
-  1. GET /api/auth/google       → redirects user to Google consent screen
-  2. GET /api/auth/callback     → exchanges code for tokens, saves to DB
-  3. DELETE /api/auth/revoke    → revokes Gmail access (DPDP: right to withdraw)
-  4. GET /api/auth/status       → checks if user has connected Gmail
+  1. GET /api/auth/google       → redirects to Google consent screen
+  2. GET /api/auth/callback     → exchanges code, saves token + profile
+  3. DELETE /api/auth/revoke    → revokes one or all Gmail accounts
+  4. GET /api/auth/status       → checks if user has ANY Gmail connected
+  5. GET /api/auth/accounts     → returns list of all connected accounts
 """
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -22,12 +22,13 @@ from backend.config import (
     GOOGLE_REDIRECT_URI,
     FRONTEND_URL,
 )
-from backend.services.supabase_service import save_gmail_token, delete_gmail_token, get_gmail_token
+from backend.services.supabase_service import (
+    save_gmail_token, delete_gmail_token, get_gmail_token,
+    get_all_gmail_tokens, get_gmail_token_by_email,
+)
 
 router = APIRouter()
 
-# Gmail scopes — read-only, no send/delete permissions
-# Added userinfo.profile for user avatar/name
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "openid",
@@ -47,7 +48,6 @@ CLIENT_CONFIG = {
 
 
 def build_flow() -> Flow:
-    """Create a Google OAuth flow instance."""
     flow = Flow.from_client_config(
         CLIENT_CONFIG,
         scopes=SCOPES,
@@ -57,7 +57,6 @@ def build_flow() -> Flow:
 
 
 def _fetch_google_userinfo(access_token: str) -> dict:
-    """Fetch user profile from Google using the access token."""
     try:
         import requests as req
         resp = req.get(
@@ -75,9 +74,8 @@ def _fetch_google_userinfo(access_token: str) -> dict:
 @router.get("/google")
 async def google_auth_start(request: Request):
     """
-    Step 1: Redirect user to Google consent screen.
-    Frontend calls this to start the Gmail connection.
-    Requires: user_id passed as query param (from Supabase auth session).
+    Redirect to Google consent. Works for first account AND adding more.
+    prompt=consent forces the account picker every time.
     """
     user_id = request.query_params.get("user_id")
     if not user_id:
@@ -85,10 +83,10 @@ async def google_auth_start(request: Request):
 
     flow = build_flow()
     auth_url, state = flow.authorization_url(
-        access_type="offline",       # get refresh_token so we can sync later
+        access_type="offline",
         include_granted_scopes="true",
-        prompt="consent",            # force consent screen so refresh_token is always returned
-        state=user_id,               # pass user_id through state param
+        prompt="consent",    # always show account picker + consent
+        state=user_id,
     )
     return RedirectResponse(url=auth_url)
 
@@ -96,14 +94,11 @@ async def google_auth_start(request: Request):
 @router.get("/callback")
 async def google_auth_callback(request: Request):
     """
-    Step 2: Google redirects back here after user grants permission.
-    Exchanges the auth code for access + refresh tokens.
-    Saves tokens to gmail_tokens table.
-    Fetches user profile (name, email, picture) from Google.
-    Redirects user back to frontend dashboard with profile data.
+    Exchange code for tokens. Fetch Google profile. Save with email as key.
+    Supports adding multiple accounts — each email gets its own row.
     """
     code = request.query_params.get("code")
-    state = request.query_params.get("state")  # this is the user_id we passed
+    state = request.query_params.get("state")
     error = request.query_params.get("error")
 
     if error:
@@ -119,23 +114,31 @@ async def google_auth_callback(request: Request):
         flow.fetch_token(code=code)
         credentials = flow.credentials
 
-        # Save tokens to Supabase
+        # Fetch Google profile to get email (used as unique key)
+        profile = _fetch_google_userinfo(credentials.token)
+        user_email = profile.get("email", "")
+        user_name = profile.get("name", "")
+        user_picture = profile.get("picture", "")
+
+        # Save token — upserts on (user_id, user_email)
         await save_gmail_token(
             user_id=user_id,
             access_token=credentials.token,
             refresh_token=credentials.refresh_token,
             token_expiry=credentials.expiry,
             scope=" ".join(credentials.scopes) if credentials.scopes else "",
+            user_email=user_email,
+            user_name=user_name,
+            user_picture=user_picture,
         )
 
-        # Fetch Google profile (name, email, picture)
-        profile = _fetch_google_userinfo(credentials.token)
+        # Pass profile back to frontend via URL params
         profile_params = ""
-        if profile:
+        if user_email:
             params = {
-                "user_name": profile.get("name", ""),
-                "user_email": profile.get("email", ""),
-                "user_picture": profile.get("picture", ""),
+                "user_name": user_name,
+                "user_email": user_email,
+                "user_picture": user_picture,
             }
             profile_params = "&" + urllib.parse.urlencode(params)
 
@@ -149,31 +152,47 @@ async def google_auth_callback(request: Request):
 @router.delete("/revoke")
 async def revoke_gmail(request: Request):
     """
+    Revoke one Gmail account (if email provided) or ALL accounts.
     DPDP Act 2023 — Right to Withdraw Consent.
-    Deletes the Gmail token from DB so we can no longer read their inbox.
     """
     user_id = request.query_params.get("user_id")
+    email = request.query_params.get("email")  # optional: revoke specific account
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
 
     try:
-        # Try to revoke token at Google as well
-        token_row = await get_gmail_token(user_id)
-        if token_row and token_row.get("access_token"):
-            creds = Credentials(token=token_row["access_token"])
-            try:
-                import requests as req
-                req.post(
-                    "https://oauth2.googleapis.com/revoke",
-                    params={"token": token_row["access_token"]},
-                    headers={"content-type": "application/x-www-form-urlencoded"},
-                    timeout=5,
-                )
-            except Exception:
-                pass  # best-effort revoke at Google
+        if email:
+            # Revoke specific account
+            token_row = await get_gmail_token_by_email(user_id, email)
+            if token_row and token_row.get("access_token"):
+                try:
+                    import requests as req
+                    req.post(
+                        "https://oauth2.googleapis.com/revoke",
+                        params={"token": token_row["access_token"]},
+                        headers={"content-type": "application/x-www-form-urlencoded"},
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
+            await delete_gmail_token(user_id, user_email=email)
+        else:
+            # Revoke ALL accounts
+            tokens = await get_all_gmail_tokens(user_id)
+            for t in tokens:
+                try:
+                    import requests as req
+                    req.post(
+                        "https://oauth2.googleapis.com/revoke",
+                        params={"token": t.get("access_token", "")},
+                        headers={"content-type": "application/x-www-form-urlencoded"},
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
+            await delete_gmail_token(user_id)
 
-        await delete_gmail_token(user_id)
-        return {"status": "revoked", "message": "Gmail access successfully removed"}
+        return {"status": "revoked", "message": "Gmail access removed"}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Revoke failed: {str(e)}")
@@ -182,15 +201,36 @@ async def revoke_gmail(request: Request):
 @router.get("/status")
 async def gmail_status(request: Request):
     """
-    Check if a user has connected their Gmail.
-    Frontend uses this on load to decide which screen to show.
+    Check if user has ANY connected Gmail account.
     """
     user_id = request.query_params.get("user_id")
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
 
-    token_row = await get_gmail_token(user_id)
+    tokens = await get_all_gmail_tokens(user_id)
     return {
-        "connected": token_row is not None,
-        "email": token_row.get("scope", "") if token_row else None,
+        "connected": len(tokens) > 0,
+        "count": len(tokens),
     }
+
+
+@router.get("/accounts")
+async def list_accounts(request: Request):
+    """
+    Return all connected Gmail accounts for a user.
+    Frontend uses this to show the account list.
+    """
+    user_id = request.query_params.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    tokens = await get_all_gmail_tokens(user_id)
+    accounts = []
+    for t in tokens:
+        accounts.append({
+            "email": t.get("user_email", ""),
+            "name": t.get("user_name", ""),
+            "picture": t.get("user_picture", ""),
+            "connected_at": t.get("created_at", ""),
+        })
+    return {"accounts": accounts, "count": len(accounts)}

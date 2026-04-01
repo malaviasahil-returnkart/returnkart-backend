@@ -23,7 +23,13 @@ export const api = {
 
   // Auth
   authStatus:  (userId) => request(`/api/auth/status?user_id=${userId}`),
-  authRevoke:  (userId) => request(`/api/auth/revoke?user_id=${userId}`, { method: 'DELETE' }),
+  authRevoke:  (userId, email) => {
+    const url = email
+      ? `/api/auth/revoke?user_id=${userId}&email=${encodeURIComponent(email)}`
+      : `/api/auth/revoke?user_id=${userId}`
+    return request(url, { method: 'DELETE' })
+  },
+  getAccounts: (userId) => request(`/api/auth/accounts?user_id=${userId}`),
   gmailOAuthUrl: (userId) => `${BASE}/api/auth/google?user_id=${userId}`,
 
   // Orders
