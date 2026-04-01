@@ -15,13 +15,15 @@ from backend.services.gmail_service import sync_gmail_orders
 
 router = APIRouter()
 
+VALID_STATUSES = ("kept", "returned", "active", "expired", "want_to_return")
+
 
 @router.get("")
 async def list_orders(request: Request, status: Optional[str] = None):
     """
     GET /api/orders
     Returns all orders for the authenticated user.
-    Optional ?status=active|kept|returned|expired filter.
+    Optional ?status=active|kept|returned|expired|want_to_return filter.
     """
     user_id = request.query_params.get("user_id")
     if not user_id:
@@ -49,7 +51,7 @@ async def urgent_orders(request: Request, days: int = 3):
 async def patch_order(order_id: str, request: Request):
     """
     PATCH /api/orders/{order_id}
-    Update order status. Body: { "user_id": "...", "status": "kept|returned" }
+    Update order status. Body: { "user_id": "...", "status": "kept|returned|want_to_return" }
     """
     body = await request.json()
     user_id = body.get("user_id")
@@ -57,8 +59,8 @@ async def patch_order(order_id: str, request: Request):
 
     if not user_id or not status:
         raise HTTPException(status_code=400, detail="user_id and status are required")
-    if status not in ("kept", "returned", "active", "expired"):
-        raise HTTPException(status_code=400, detail="Invalid status value")
+    if status not in VALID_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(VALID_STATUSES)}")
 
     updated = await update_order_status(order_id, user_id, status)
     return {"order": updated}

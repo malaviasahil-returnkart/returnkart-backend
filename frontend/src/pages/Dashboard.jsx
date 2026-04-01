@@ -18,7 +18,6 @@ function sortOrders(orders, sortKey) {
       return arr.sort((a, b) => {
         const da = daysRemaining(a.return_deadline)
         const db = daysRemaining(b.return_deadline)
-        // Active orders first, sorted by days remaining asc
         if (da === null && db === null) return 0
         if (da === null) return 1
         if (db === null) return -1
@@ -44,22 +43,53 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
   const [selected, setSelected] = useState(null)
   const [tab, setTab]           = useState('active')
   const [sort, setSort]         = useState('expiry_asc')
+  const [summary, setSummary]   = useState({ activeCount: 0, activeValue: 0, returnCount: 0, returnValue: 0 })
 
+  // ─── Fetch summary counts (all orders, unfiltered) ──────────────────────────
+  const loadSummary = useCallback(() => {
+    api.getOrders(userId, null)
+      .then(data => {
+        const all = data.orders || []
+        const active = all.filter(o => {
+          if (o.status !== 'active') return false
+          const d = daysRemaining(o.return_deadline)
+          return d !== null && d >= 0
+        })
+        const wtr = all.filter(o => o.status === 'want_to_return')
+        setSummary({
+          activeCount: active.length,
+          activeValue: active.reduce((s, o) => s + (o.price || 0), 0),
+          returnCount: wtr.length,
+          returnValue: wtr.reduce((s, o) => s + (o.price || 0), 0),
+        })
+      })
+      .catch(() => {})
+  }, [userId])
+
+  // ─── Fetch filtered orders for the list ─────────────────────────────────────
   const loadOrders = useCallback(() => {
     setLoading(true)
-    api.getOrders(userId, tab === 'all' ? null : tab)
+    const statusFilter = tab === 'all' ? null : tab === 'return' ? 'want_to_return' : tab
+    api.getOrders(userId, statusFilter)
       .then(data => setOrders(data.orders || []))
       .catch(() => setOrders([]))
       .finally(() => setLoading(false))
   }, [userId, tab])
 
   useEffect(() => { loadOrders() }, [loadOrders])
+  useEffect(() => { loadSummary() }, [loadSummary])
+
+  // ─── Refresh both lists after any mutation ──────────────────────────────────
+  function refreshAll() {
+    loadOrders()
+    loadSummary()
+  }
 
   async function handleSync() {
     setSyncing(true)
     try {
       await api.syncGmail(userId)
-      setTimeout(loadOrders, 2000)
+      setTimeout(refreshAll, 2000)
     } catch(e) {
       console.error(e)
     } finally {
@@ -70,13 +100,25 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
   async function handleMarkKept(orderId) {
     await api.patchOrder(orderId, userId, 'kept').catch(() => {})
     setSelected(null)
-    loadOrders()
+    refreshAll()
   }
 
   async function handleMarkReturned(orderId) {
     await api.patchOrder(orderId, userId, 'returned').catch(() => {})
     setSelected(null)
-    loadOrders()
+    refreshAll()
+  }
+
+  async function handleMarkWantToReturn(orderId) {
+    await api.patchOrder(orderId, userId, 'want_to_return').catch(() => {})
+    setSelected(null)
+    refreshAll()
+  }
+
+  async function handleUndoWantToReturn(orderId) {
+    await api.patchOrder(orderId, userId, 'active').catch(() => {})
+    setSelected(null)
+    refreshAll()
   }
 
   const moneyAtRisk = orders
@@ -89,8 +131,6 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
   })
 
   const sortedOrders = sortOrders(orders, sort)
-
-  // For brand sort: group by brand visually with a sticky label
   const showBrandHeader = sort === 'brand'
 
   return (
@@ -120,9 +160,51 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
         </div>
       </header>
 
+      {/* ─── Summary Tiles ─────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3 px-4 mt-4 animate-slide-up">
+        {/* Tile 1: Active Tracking */}
+        <button
+          onClick={() => setTab('active')}
+          className={`rounded-2xl px-4 py-4 text-left transition-all active:scale-95 ${
+            tab === 'active'
+              ? 'bg-vault-card border border-vault-gold/40 gold-glow'
+              : 'bg-vault-card card-border'
+          }`}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-lg">📦</span>
+            <span className="text-vault-muted text-xs font-medium uppercase tracking-wider">Active Tracking</span>
+          </div>
+          <p className="text-3xl font-bold text-vault-text">{summary.activeCount}</p>
+          <p className="text-vault-gold text-sm font-semibold mt-1">{formatINR(summary.activeValue)}</p>
+          <p className="text-vault-muted text-xs mt-0.5">orders being tracked</p>
+        </button>
+
+        {/* Tile 2: Want to Return */}
+        <button
+          onClick={() => setTab('return')}
+          className={`rounded-2xl px-4 py-4 text-left transition-all active:scale-95 ${
+            tab === 'return'
+              ? 'bg-vault-card border border-vault-urgent/40'
+              : 'bg-vault-card card-border'
+          }`}
+          style={tab === 'return' ? { boxShadow: '0 0 12px rgba(255,68,68,0.15)' } : {}}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-lg">↩️</span>
+            <span className="text-vault-muted text-xs font-medium uppercase tracking-wider">Want to Return</span>
+          </div>
+          <p className="text-3xl font-bold text-vault-text">{summary.returnCount}</p>
+          <p className="text-sm font-semibold mt-1" style={{ color: summary.returnCount > 0 ? '#FF6B6B' : '#A0A0A0' }}>
+            {formatINR(summary.returnValue)}
+          </p>
+          <p className="text-vault-muted text-xs mt-0.5">marked for return</p>
+        </button>
+      </div>
+
       {/* Money at risk banner */}
-      {moneyAtRisk > 0 && (
-        <div className="mx-4 mt-4 rounded-2xl bg-vault-card urgent-border px-4 py-4 flex items-center justify-between animate-slide-up">
+      {moneyAtRisk > 0 && tab === 'active' && (
+        <div className="mx-4 mt-3 rounded-2xl bg-vault-card urgent-border px-4 py-4 flex items-center justify-between animate-slide-up">
           <div>
             <p className="text-vault-muted text-xs uppercase tracking-wider">Money at Risk</p>
             <p className="text-2xl font-bold text-vault-urgent mt-0.5">{formatINR(moneyAtRisk)}</p>
@@ -134,7 +216,7 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
 
       {/* Tabs */}
       <div className="flex gap-1 px-4 mt-4">
-        {[['active','Active'],['all','All'],['expired','Expired']].map(([val, label]) => (
+        {[['active','Active'],['return','Return'],['all','All'],['expired','Expired']].map(([val, label]) => (
           <button
             key={val}
             onClick={() => setTab(val)}
@@ -145,6 +227,11 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
             }`}
           >
             {label}
+            {val === 'return' && summary.returnCount > 0 && (
+              <span className="ml-1.5 bg-red-500/20 text-red-400 text-xs px-1.5 py-0.5 rounded-full">
+                {summary.returnCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -174,9 +261,11 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
           </div>
         ) : sortedOrders.length === 0 ? (
           <div className="flex flex-col items-center py-16 gap-4 animate-fade-in">
-            <span className="text-5xl">📬</span>
+            <span className="text-5xl">{tab === 'return' ? '↩️' : '📬'}</span>
             <p className="text-vault-muted text-center text-sm">
-              {tab === 'active' ? 'No active orders tracked yet.\nTap Sync Gmail to import orders.' : 'No orders here.'}
+              {tab === 'active' ? 'No active orders tracked yet.\nTap Sync Gmail to import orders.'
+                : tab === 'return' ? 'No orders marked for return yet.\nTap an order and hit "Want to Return".'
+                : 'No orders here.'}
             </p>
             {tab === 'active' && (
               <button onClick={handleSync} disabled={syncing} className="mt-2 bg-vault-gold text-vault-black px-6 py-2 rounded-xl font-semibold text-sm active:scale-95 transition-transform">
@@ -209,6 +298,8 @@ export default function Dashboard({ userId, onDisconnect, onOpenSettings }) {
           onClose={() => setSelected(null)}
           onKept={() => handleMarkKept(selected.id)}
           onReturned={() => handleMarkReturned(selected.id)}
+          onWantToReturn={() => handleMarkWantToReturn(selected.id)}
+          onUndoWantToReturn={() => handleUndoWantToReturn(selected.id)}
         />
       )}
     </div>
@@ -219,9 +310,12 @@ function OrderCard({ order, onTap }) {
   const days = daysRemaining(order.return_deadline)
   const level = urgencyLevel(days)
   const color = urgencyColor(level)
+  const isWantToReturn = order.status === 'want_to_return'
 
   const cardClass = level === 'expired'
     ? 'opacity-50'
+    : isWantToReturn
+    ? 'border border-blue-500/30'
     : level === 'critical' || level === 'urgent'
     ? 'urgent-border'
     : 'card-border'
@@ -239,6 +333,9 @@ function OrderCard({ order, onTap }) {
               <span className="text-xs font-semibold text-vault-gold truncate">{order.brand}</span>
               {order.is_replacement_only && (
                 <span className="text-xs px-1.5 py-0.5 rounded-full bg-yellow-900/40 text-yellow-400 flex-shrink-0">Replace</span>
+              )}
+              {isWantToReturn && (
+                <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-900/40 text-blue-400 flex-shrink-0">↩ Return</span>
               )}
             </div>
             <p className="text-vault-text font-medium text-sm truncate">{order.item_name}</p>
@@ -284,10 +381,11 @@ function CountdownArc({ days, color }) {
   )
 }
 
-function OrderSheet({ order, onClose, onKept, onReturned }) {
+function OrderSheet({ order, onClose, onKept, onReturned, onWantToReturn, onUndoWantToReturn }) {
   const days = daysRemaining(order.return_deadline)
   const level = urgencyLevel(days)
   const color = urgencyColor(level)
+  const isWantToReturn = order.status === 'want_to_return'
 
   return (
     <>
@@ -297,7 +395,12 @@ function OrderSheet({ order, onClose, onKept, onReturned }) {
         <div className="flex items-center gap-3">
           <BrandLogo brand={order.brand} size={48} className="rounded-2xl flex-shrink-0" />
           <div className="flex-1 min-w-0">
-            <span className="text-sm font-bold text-vault-gold">{order.brand}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-vault-gold">{order.brand}</span>
+              {isWantToReturn && (
+                <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-900/40 text-blue-400">↩ Returning</span>
+              )}
+            </div>
             <h2 className="text-vault-text font-semibold text-base mt-0.5 truncate">{order.item_name}</h2>
             <p className="text-vault-muted text-xs">Order #{order.order_id}</p>
           </div>
@@ -324,17 +427,41 @@ function OrderSheet({ order, onClose, onKept, onReturned }) {
             ⚠️ This item is <strong>replacement only</strong> — no cash refund available.
           </div>
         )}
+
+        {/* ─── Action Buttons ──────────────────────────────────────────── */}
         {order.status === 'active' && (
           <div className="flex flex-col gap-3">
-            <button onClick={() => onReturned(order.id)} className="w-full bg-vault-gold text-vault-black py-4 rounded-2xl font-semibold text-base active:scale-95 transition-transform">
-              📦 I Returned This
+            <button onClick={onWantToReturn} className="w-full bg-vault-gold text-vault-black py-4 rounded-2xl font-semibold text-base active:scale-95 transition-transform">
+              ↩️ Want to Return
             </button>
-            <button onClick={() => onKept(order.id)} className="w-full bg-vault-card card-border text-vault-muted py-4 rounded-2xl font-semibold text-base active:scale-95 transition-transform">
-              ✓ I'm Keeping This
-            </button>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={onReturned} className="bg-vault-card card-border text-vault-muted py-3 rounded-2xl font-medium text-sm active:scale-95 transition-transform">
+                📦 Returned
+              </button>
+              <button onClick={onKept} className="bg-vault-card card-border text-vault-muted py-3 rounded-2xl font-medium text-sm active:scale-95 transition-transform">
+                ✓ Keeping
+              </button>
+            </div>
           </div>
         )}
-        {order.status !== 'active' && (
+
+        {isWantToReturn && (
+          <div className="flex flex-col gap-3">
+            <button onClick={onReturned} className="w-full bg-vault-gold text-vault-black py-4 rounded-2xl font-semibold text-base active:scale-95 transition-transform">
+              📦 I Returned This
+            </button>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={onUndoWantToReturn} className="bg-vault-card card-border text-vault-muted py-3 rounded-2xl font-medium text-sm active:scale-95 transition-transform">
+                ↶ Undo
+              </button>
+              <button onClick={onKept} className="bg-vault-card card-border text-vault-muted py-3 rounded-2xl font-medium text-sm active:scale-95 transition-transform">
+                ✓ Keeping
+              </button>
+            </div>
+          </div>
+        )}
+
+        {order.status !== 'active' && !isWantToReturn && (
           <div className="text-center text-vault-muted text-sm py-2">
             Status: <span className="text-vault-text capitalize font-medium">{order.status}</span>
           </div>
