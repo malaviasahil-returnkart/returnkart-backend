@@ -2,7 +2,7 @@
 RETURNKART.IN — SUPABASE SERVICE
 Central DB layer. All Supabase reads/writes go through here.
 
-MULTI-GMAIL: gmail_tokens now supports multiple rows per user.
+MULTI-GMAIL: gmail_tokens supports multiple rows per user.
 Unique constraint is on (user_id, user_email).
 """
 from datetime import datetime, date, timezone, timedelta
@@ -38,25 +38,35 @@ async def save_gmail_token(
     user_picture: Optional[str] = None,
 ) -> dict:
     client = get_client()
+    # Ensure user_email is never NULL — use 'unknown' as fallback
+    email = user_email or "unknown"
     data = {
         "user_id": user_id,
+        "user_email": email,
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_expiry": token_expiry.isoformat() if token_expiry else None,
         "scope": scope,
         "updated_at": datetime.now(IST).isoformat(),
     }
-    if user_email is not None:
-        data["user_email"] = user_email
     if user_name is not None:
         data["user_name"] = user_name
     if user_picture is not None:
         data["user_picture"] = user_picture
 
-    # Upsert on (user_id, user_email) for multi-account support
-    conflict = "user_id,user_email" if user_email else "user_id"
-    result = client.table("gmail_tokens").upsert(data, on_conflict=conflict).execute()
-    return result.data[0] if result.data else {}
+    # Always upsert on (user_id, user_email)
+    try:
+        result = client.table("gmail_tokens").upsert(data, on_conflict="user_id,user_email").execute()
+        return result.data[0] if result.data else {}
+    except Exception as e:
+        print(f"[Supabase] save_gmail_token error: {e}")
+        # Fallback: try without on_conflict for legacy rows
+        try:
+            result = client.table("gmail_tokens").upsert(data).execute()
+            return result.data[0] if result.data else {}
+        except Exception as e2:
+            print(f"[Supabase] save_gmail_token fallback error: {e2}")
+            return {}
 
 
 async def get_gmail_token(user_id: str) -> Optional[dict]:

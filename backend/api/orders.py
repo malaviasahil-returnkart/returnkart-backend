@@ -1,7 +1,8 @@
 """
 RETURNKART.IN — ORDERS API ROUTES
 Task #15: HTTP endpoints for order management.
-All business logic lives in supabase_service. These are thin wrappers.
+
+Includes sync-debug endpoint for troubleshooting.
 """
 from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
 from typing import Optional
@@ -20,39 +21,24 @@ VALID_STATUSES = ("kept", "returned", "active", "expired", "want_to_return")
 
 @router.get("")
 async def list_orders(request: Request, status: Optional[str] = None):
-    """
-    GET /api/orders
-    Returns all orders for the authenticated user.
-    Optional ?status=active|kept|returned|expired|want_to_return filter.
-    """
     user_id = request.query_params.get("user_id")
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
-
     orders = await get_orders_by_user(user_id, status=status)
     return {"orders": orders, "count": len(orders)}
 
 
 @router.get("/urgent")
 async def urgent_orders(request: Request, days: int = 3):
-    """
-    GET /api/orders/urgent
-    Returns orders expiring within N days. Used for the dashboard carousel.
-    """
     user_id = request.query_params.get("user_id")
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
-
     orders = await get_expiring_soon(user_id, days=days)
     return {"orders": orders, "count": len(orders)}
 
 
 @router.patch("/{order_id}")
 async def patch_order(order_id: str, request: Request):
-    """
-    PATCH /api/orders/{order_id}
-    Update order status. Body: { "user_id": "...", "status": "kept|returned|want_to_return" }
-    """
     body = await request.json()
     user_id = body.get("user_id")
     status = body.get("status")
@@ -80,3 +66,22 @@ async def trigger_sync(request: Request, background_tasks: BackgroundTasks):
 
     background_tasks.add_task(sync_gmail_orders, user_id)
     return {"status": "sync_started", "message": "Gmail sync running in background"}
+
+
+@router.post("/sync-debug")
+async def sync_debug(request: Request):
+    """
+    POST /api/orders/sync-debug
+    Runs Gmail sync SYNCHRONOUSLY and returns full results.
+    Use this to debug why orders aren't appearing.
+    """
+    body = await request.json()
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    try:
+        result = await sync_gmail_orders(user_id)
+        return {"status": "complete", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e), "type": type(e).__name__}
