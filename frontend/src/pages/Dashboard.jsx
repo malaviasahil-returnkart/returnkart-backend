@@ -72,8 +72,21 @@ function SkeletonTile() {
   )
 }
 
-// ─── User Avatar ──────────────────────────────────────────────────────────
-function UserAvatar({ profile, size = 28, onClick }) {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function getInitials(name, email) {
+  if (name) {
+    const parts = name.trim().split(/\s+/)
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    }
+    return parts[0][0]?.toUpperCase() || ''
+  }
+  if (email) return email[0]?.toUpperCase() || ''
+  return ''
+}
+
+// ─── User Avatar ──────────────────────────────────────────────────────────────
+function UserAvatar({ profile, size = 32, onClick }) {
   if (profile?.picture) {
     return (
       <button
@@ -93,8 +106,7 @@ function UserAvatar({ profile, size = 28, onClick }) {
     )
   }
 
-  // Fallback: first letter of name or generic icon
-  const initial = (profile?.name || profile?.email || '')[0]?.toUpperCase()
+  const initials = getInitials(profile?.name, profile?.email)
   return (
     <button
       onClick={onClick}
@@ -105,8 +117,8 @@ function UserAvatar({ profile, size = 28, onClick }) {
         className="rounded-full bg-vault-gold/15 ring-2 ring-vault-gold/30 ring-offset-1 ring-offset-vault-black flex items-center justify-center"
         style={{ width: size, height: size }}
       >
-        {initial
-          ? <span className="text-vault-gold text-xs font-bold">{initial}</span>
+        {initials
+          ? <span className="text-vault-gold text-[11px] font-bold leading-none">{initials}</span>
           : <User size={14} className="text-vault-gold" />
         }
       </div>
@@ -237,7 +249,7 @@ export default function Dashboard({ userId, userProfile, onDisconnect, onOpenSet
           >
             <Settings size={20} />
           </button>
-          <UserAvatar profile={userProfile} size={28} onClick={onOpenSettings} />
+          <UserAvatar profile={userProfile} size={32} onClick={onOpenSettings} />
         </div>
       </header>
 
